@@ -31,7 +31,7 @@ export default function ProjectWorkspacePage() {
   const [activeTab, setActiveTab] = useState<"assets" | "composer" | "history">(
     "assets",
   );
-  const [viewMode, setViewMode] = useState<ViewMode>("tabs");
+  const [viewMode, setViewMode] = useState<ViewMode>("canvas");
   const [seedAsset, setSeedAsset] = useState<Asset | null>(null);
 
   useEffect(() => {

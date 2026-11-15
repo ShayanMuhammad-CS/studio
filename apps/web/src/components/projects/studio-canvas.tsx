@@ -354,7 +354,6 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const promptRef = useRef<HTMLTextAreaElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const referenceRef = useRef<HTMLDivElement>(null);
   const referenceMenuRef = useRef<HTMLDivElement>(null);
@@ -944,7 +943,6 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                   </label>
                   <textarea
                     id="studio-canvas-prompt"
-                    ref={promptRef}
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     onKeyDown={(event) => {
@@ -1123,16 +1121,6 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                       <SlidersHorizontal className="h-3.5 w-3.5 text-[#A995FF]" />
                     </button>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={() => promptRef.current?.focus()}
-                    title="Focus prompt"
-                    aria-label="Focus prompt"
-                    className={`${chipClasses} ml-auto px-2`}
-                  >
-                    <ChevronDown className="h-3.5 w-3.5 rotate-[-90deg] text-[#9AA1B2]" />
-                  </button>
                   </div>
 
                   {isReferenceOpen && (
