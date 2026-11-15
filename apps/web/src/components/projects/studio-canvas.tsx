@@ -51,6 +51,7 @@ import {
   type ParamValues,
 } from "@/lib/generation-params";
 import { capabilitiesOfKind } from "@/lib/model-inputs";
+import { findRelatedModel, resolveModelSelection } from "@/lib/model-selection";
 
 type ComposerMode = "image" | "video";
 
@@ -356,6 +357,8 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   const inFlight = useRef(false);
   const idempotency = useRef<{ key: string; signature: string } | null>(null);
   const lastModelSlug = useRef<string | null>(null);
+  const lastSelectedModel = useRef<StudioModel | null>(null);
+  const lastSelectionNotice = useRef<string | null>(null);
   const refreshedAssetIds = useRef<Set<string>>(new Set());
 
   const attachedAssets = useMemo(
@@ -374,8 +377,13 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   const imageCapabilities = useMemo(() => {
     const direct = capabilitiesOfKind(selectedModel, "image");
     if (direct.length > 0) return direct;
-    // If the currently selected model is text_to_image / text_to_video, look up what
-    // capabilities the mode's image models support so references can still be attached.
+    // If the currently selected model is text_to_image / text_to_video, use the
+    // same-family image variant's slots so references are attached with the
+    // right role and limits before the model list switches over.
+    const related = findRelatedModel(companionModels, selectedModel);
+    const relatedCapabilities = capabilitiesOfKind(related, "image");
+    if (relatedCapabilities.length > 0) return relatedCapabilities;
+    // Otherwise fall back to any image model in this mode's catalog.
     const companion = companionModels.find((m) => capabilitiesOfKind(m, "image").length > 0);
     return capabilitiesOfKind(companion, "image");
   }, [selectedModel, companionModels]);
@@ -402,12 +410,42 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   );
   useJobRealtime(projectId, handleJobChange);
 
+  // Remember the last model the user actually had selected, so switching task
+  // lists (e.g. after attaching a reference) can migrate within the same family.
+  useEffect(() => {
+    if (!selectedModel || selectedModel.slug !== selectedSlug) return;
+    lastSelectedModel.current = selectedModel;
+  }, [selectedModel, selectedSlug]);
+
   // Keep a valid selection whenever the task type (and model list) changes.
+  // Prefer a same-family variant (FLUX.2 Pro → FLUX.2 Pro Edit) over the first
+  // model in the new list, so attaching a reference never jumps to CodeFormer.
   useEffect(() => {
     if (models.length === 0) return;
-    if (!selectedSlug || !models.some((model) => model.slug === selectedSlug)) {
-      setSelectedSlug(models[0].slug);
+
+    const previous = lastSelectedModel.current;
+    const resolved = resolveModelSelection(models, selectedSlug, previous);
+    if (!resolved) return;
+    if (resolved.model.slug === selectedSlug) return;
+
+    // Explain a fallback within the same output kind (e.g. text→image when a
+    // reference is attached) when no same-family variant exists.
+    const previousOutput = previous?.task_type.split("_").pop();
+    const nextOutput = resolved.model.task_type.split("_").pop();
+    const noticeKey = `${previous?.slug ?? ""}->${resolved.model.slug}`;
+    if (
+      previous &&
+      !resolved.migrated &&
+      previousOutput === nextOutput &&
+      lastSelectionNotice.current !== noticeKey
+    ) {
+      lastSelectionNotice.current = noticeKey;
+      toast.info(
+        `Switched to ${resolved.model.display_name}; ${previous.display_name} isn't available for this flow.`
+      );
     }
+
+    setSelectedSlug(resolved.model.slug);
   }, [models, selectedSlug]);
 
   // Reset parameters to the model defaults when a different model is picked.

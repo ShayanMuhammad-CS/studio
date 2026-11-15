@@ -23,6 +23,8 @@ export interface StudioModel {
   display_name: string;
   task_type: TaskType | string;
   provider_id: string;
+  /** Provider-native model id; shared by task-specific variants of one model. */
+  provider_model?: string;
   input_schema: ModelInputSchema;
   default_params: Record<string, string | number | boolean | null>;
   cost_credits: string;

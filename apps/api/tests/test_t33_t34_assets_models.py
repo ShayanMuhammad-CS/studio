@@ -500,6 +500,7 @@ async def test_list_models_returns_enabled_models() -> None:
     assert len(models) == 1
     assert models[0]["slug"] == "fake-img-v1"
     assert models[0]["task_type"] == "text_to_image"
+    assert models[0]["provider_model"] == "fake-t2i"
     assert models[0]["input_capabilities"] == []
     assert "Cache-Control" in resp.headers
 

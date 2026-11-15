@@ -841,6 +841,8 @@ export interface components {
             };
             /** Provider Id */
             provider_id: string;
+            /** Provider Model */
+            provider_model: string;
             /** Required Input Roles */
             required_input_roles: string[];
             /** Slug */

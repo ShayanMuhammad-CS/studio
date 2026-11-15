@@ -1026,6 +1026,10 @@
             "title": "Provider Id",
             "type": "string"
           },
+          "provider_model": {
+            "title": "Provider Model",
+            "type": "string"
+          },
           "required_input_roles": {
             "items": {
               "type": "string"
@@ -1048,6 +1052,7 @@
           "display_name",
           "task_type",
           "provider_id",
+          "provider_model",
           "input_schema",
           "default_params",
           "cost_credits",

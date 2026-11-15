@@ -40,6 +40,7 @@ class ModelResponse(BaseModel):
     display_name: str
     task_type: str
     provider_id: str
+    provider_model: str
     input_schema: dict[str, Any]
     default_params: dict[str, Any]
     cost_credits: str  # serialized as string for precision
@@ -87,6 +88,7 @@ async def list_models(
                 display_name=model.display_name,
                 task_type=model.task_type.value,
                 provider_id=model.provider_id,
+                provider_model=model.provider_model,
                 input_schema=model.input_schema,
                 default_params=model.default_params,
                 cost_credits=str(model.cost_credits),
