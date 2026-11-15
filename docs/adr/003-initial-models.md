@@ -76,9 +76,12 @@ the catalog only supports text/image → video, not video → video. MiniMax
 Video-01 already covers both video flows.
 
 A few of these models use non-standard input keys. The Replicate adapter maps
-`tencentarc/gfpgan` to `img`, `black-forest-labs/flux-2-pro` and
-`google/nano-banana` to their list-style image fields, and
-`minimax/video-01` to `first_frame_image`.
+FLUX.1 Kontext to `input_image`, FLUX 1.1 [pro] to `image_prompt`, the
+controlnet remix to `control_image`, `tencentarc/gfpgan` to `img`,
+`black-forest-labs/flux-2-pro` and `google/nano-banana` to their list-style
+image fields, and `minimax/video-01` to `first_frame_image` (and
+`subject_reference` for reference images). Everything else falls back to the
+generic `image` key used by Topaz, CodeFormer, and FLUX.1 [dev].
 
 ### Credit pricing formula
 

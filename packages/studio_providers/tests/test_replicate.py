@@ -236,6 +236,35 @@ class TestReplicateSubmit:
 
     @pytest.mark.asyncio
     @respx.mock
+    @pytest.mark.parametrize(
+        ("model", "expected_key"),
+        [
+            ("black-forest-labs/flux-kontext-pro", "input_image"),
+            ("black-forest-labs/flux-1.1-pro", "image_prompt"),
+            ("xlabs-ai/flux-dev-controlnet", "control_image"),
+        ],
+    )
+    async def test_submit_maps_model_specific_image_key(
+        self, model: str, expected_key: str
+    ) -> None:
+        provider = _make_provider()
+        route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model=model,
+            task_type=TaskType.IMAGE_TO_IMAGE,
+            inputs=[ProviderInput(role="init_image", url="https://storage/source.png")],
+        )
+        await provider.submit(req)
+
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["input"][expected_key] == "https://storage/source.png"
+        assert "image" not in sent["input"]
+
+    @pytest.mark.asyncio
+    @respx.mock
     async def test_submit_maps_flux_2_pro_images_as_list(self) -> None:
         provider = _make_provider()
         route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
@@ -276,6 +305,29 @@ class TestReplicateSubmit:
         sent = json.loads(route.calls[0].request.content)
         assert sent["input"]["first_frame_image"] == "https://storage/frame.png"
         assert "first_frame" not in sent["input"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_submit_maps_minimax_subject_reference(self) -> None:
+        provider = _make_provider()
+        route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model="minimax/video-01",
+            task_type=TaskType.IMAGE_TO_VIDEO,
+            inputs=[
+                ProviderInput(role="first_frame", url="https://storage/frame.png"),
+                ProviderInput(role="reference_image", url="https://storage/subject.png"),
+            ],
+        )
+        await provider.submit(req)
+
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["input"]["first_frame_image"] == "https://storage/frame.png"
+        assert sent["input"]["subject_reference"] == "https://storage/subject.png"
+        assert "image" not in sent["input"]
 
 
 class TestReplicateGetStatus:
