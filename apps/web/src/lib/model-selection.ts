@@ -1,4 +1,5 @@
 import type { StudioModel } from "@/hooks/use-models";
+import { capabilitiesOfKind } from "@/lib/model-inputs";
 
 /**
  * Slugs usually end with a task-specific suffix (for example `-edit` on an
@@ -48,6 +49,27 @@ export function findRelatedModel(
   );
 }
 
+/**
+ * Pick a sensible first model for the current input state. With references
+ * attached, prefer a model that can consume them; otherwise prefer a model
+ * that does not require a reference.
+ */
+export function pickDefaultModel(
+  models: StudioModel[],
+  hasReferences: boolean
+): StudioModel | null {
+  if (models.length === 0) return null;
+
+  const preferred = models.find((model) => {
+    const capabilities = capabilitiesOfKind(model, "image");
+    return hasReferences
+      ? capabilities.length > 0
+      : !capabilities.some((capability) => capability.required);
+  });
+
+  return preferred ?? models[0];
+}
+
 export interface ResolvedModelSelection {
   model: StudioModel;
   /** True when the previous model was missing and a same-family variant replaced it. */
@@ -57,12 +79,13 @@ export interface ResolvedModelSelection {
 /**
  * Keep the current selection when it still exists in the list. Otherwise prefer
  * a same-family variant (e.g. FLUX.2 Pro → FLUX.2 Pro Edit) before falling back
- * to the first available model.
+ * to the supplied default or the first available model.
  */
 export function resolveModelSelection(
   models: StudioModel[],
   currentSlug: string | null,
-  previous: StudioModel | null | undefined
+  previous: StudioModel | null | undefined,
+  fallback?: StudioModel | null
 ): ResolvedModelSelection | null {
   if (models.length === 0) return null;
 
@@ -72,5 +95,5 @@ export function resolveModelSelection(
   }
 
   const related = findRelatedModel(models, previous);
-  return { model: related ?? models[0], migrated: related !== null };
+  return { model: related ?? fallback ?? models[0], migrated: related !== null };
 }

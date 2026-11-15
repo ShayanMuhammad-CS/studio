@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findRelatedModel,
   modelFamilyKey,
+  pickDefaultModel,
   resolveModelSelection,
 } from "@/lib/model-selection";
 import type { StudioModel } from "@/hooks/use-models";
@@ -78,6 +79,27 @@ describe("model selection", () => {
       migrated: false,
       model: { slug: "replicate-codeformer" },
     });
+  });
+
+  it("falls back to the supplied default when there is no related variant", () => {
+    const resolved = resolveModelSelection([CODEFORMER], FLUX_TEXT.slug, FLUX_TEXT, CODEFORMER);
+
+    expect(resolved).toMatchObject({
+      migrated: false,
+      model: { slug: "replicate-codeformer" },
+    });
+  });
+
+  it("defaults to a text model when no references are attached", () => {
+    expect(pickDefaultModel([FLUX_EDIT, FLUX_TEXT], false)?.slug).toBe(
+      "replicate-flux-2-pro"
+    );
+  });
+
+  it("defaults to a reference-capable model when references are attached", () => {
+    expect(pickDefaultModel([FLUX_TEXT, FLUX_EDIT], true)?.slug).toBe(
+      "replicate-flux-2-pro-edit"
+    );
   });
 
   it("derives a family key from the slug when provider_model is absent", () => {

@@ -51,7 +51,7 @@ import {
   type ParamValues,
 } from "@/lib/generation-params";
 import { capabilitiesOfKind } from "@/lib/model-inputs";
-import { findRelatedModel, resolveModelSelection } from "@/lib/model-selection";
+import { pickDefaultModel, resolveModelSelection } from "@/lib/model-selection";
 
 type ComposerMode = "image" | "video";
 
@@ -358,7 +358,6 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   const idempotency = useRef<{ key: string; signature: string } | null>(null);
   const lastModelSlug = useRef<string | null>(null);
   const lastSelectedModel = useRef<StudioModel | null>(null);
-  const lastSelectionNotice = useRef<string | null>(null);
   const refreshedAssetIds = useRef<Set<string>>(new Set());
 
   const attachedAssets = useMemo(
@@ -366,27 +365,35 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
     [inputsByRole]
   );
   const hasInputs = attachedAssets.length > 0;
-  // If the user has attached inputs, use image-to-x models; otherwise fetch the full mode catalog or text-to-x models.
-  const taskType = taskTypeFor(mode, hasInputs);
-  const companionTaskType = taskTypeFor(mode, !hasInputs);
 
-  const { data: models = [], isLoading: modelsLoading, isError: modelsError } = useModels(taskType);
-  const { data: companionModels = [] } = useModels(companionTaskType);
+  // One stable catalog per output mode: text-to-x and image-to-x together.
+  // Attaching references no longer changes which models are listed.
+  const { data: allModels = [], isLoading: modelsLoading, isError: modelsError } = useModels();
+  const models = useMemo(() => {
+    const textTaskType = taskTypeFor(mode, false);
+    const imageTaskType = taskTypeFor(mode, true);
+    return allModels.filter(
+      (model) => model.task_type === textTaskType || model.task_type === imageTaskType
+    );
+  }, [allModels, mode]);
+
+  const defaultModel = useMemo(
+    () => pickDefaultModel(models, hasInputs),
+    [models, hasInputs]
+  );
   const selectedModel: StudioModel | null =
-    models.find((model) => model.slug === selectedSlug) ?? models[0] ?? null;
-  const imageCapabilities = useMemo(() => {
-    const direct = capabilitiesOfKind(selectedModel, "image");
-    if (direct.length > 0) return direct;
-    // If the currently selected model is text_to_image / text_to_video, use the
-    // same-family image variant's slots so references are attached with the
-    // right role and limits before the model list switches over.
-    const related = findRelatedModel(companionModels, selectedModel);
-    const relatedCapabilities = capabilitiesOfKind(related, "image");
-    if (relatedCapabilities.length > 0) return relatedCapabilities;
-    // Otherwise fall back to any image model in this mode's catalog.
-    const companion = companionModels.find((m) => capabilitiesOfKind(m, "image").length > 0);
-    return capabilitiesOfKind(companion, "image");
-  }, [selectedModel, companionModels]);
+    models.find((model) => model.slug === selectedSlug) ?? defaultModel;
+  const imageCapabilities = useMemo(
+    () => capabilitiesOfKind(selectedModel, "image"),
+    [selectedModel]
+  );
+  const missingRequiredInput = imageCapabilities.find(
+    (capability) =>
+      capability.required && (inputsByRole[capability.role]?.length ?? 0) === 0
+  );
+  const taskType: TaskType = selectedModel
+    ? (selectedModel.task_type as TaskType)
+    : taskTypeFor(mode, hasInputs);
   const mutation = useSubmitGeneration(projectId);
 
   const {
@@ -410,43 +417,28 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   );
   useJobRealtime(projectId, handleJobChange);
 
-  // Remember the last model the user actually had selected, so switching task
-  // lists (e.g. after attaching a reference) can migrate within the same family.
+  // Remember the last model the user actually had selected so a mode switch can
+  // still prefer a same-family variant when one exists.
   useEffect(() => {
     if (!selectedModel || selectedModel.slug !== selectedSlug) return;
     lastSelectedModel.current = selectedModel;
   }, [selectedModel, selectedSlug]);
 
-  // Keep a valid selection whenever the task type (and model list) changes.
-  // Prefer a same-family variant (FLUX.2 Pro → FLUX.2 Pro Edit) over the first
-  // model in the new list, so attaching a reference never jumps to CodeFormer.
+  // Keep a valid selection when the output mode changes. The catalog is stable
+  // while attaching or removing references, so this no longer fires for refs.
   useEffect(() => {
     if (models.length === 0) return;
 
-    const previous = lastSelectedModel.current;
-    const resolved = resolveModelSelection(models, selectedSlug, previous);
-    if (!resolved) return;
-    if (resolved.model.slug === selectedSlug) return;
-
-    // Explain a fallback within the same output kind (e.g. text→image when a
-    // reference is attached) when no same-family variant exists.
-    const previousOutput = previous?.task_type.split("_").pop();
-    const nextOutput = resolved.model.task_type.split("_").pop();
-    const noticeKey = `${previous?.slug ?? ""}->${resolved.model.slug}`;
-    if (
-      previous &&
-      !resolved.migrated &&
-      previousOutput === nextOutput &&
-      lastSelectionNotice.current !== noticeKey
-    ) {
-      lastSelectionNotice.current = noticeKey;
-      toast.info(
-        `Switched to ${resolved.model.display_name}; ${previous.display_name} isn't available for this flow.`
-      );
-    }
+    const resolved = resolveModelSelection(
+      models,
+      selectedSlug,
+      lastSelectedModel.current,
+      defaultModel
+    );
+    if (!resolved || resolved.model.slug === selectedSlug) return;
 
     setSelectedSlug(resolved.model.slug);
-  }, [models, selectedSlug]);
+  }, [models, selectedSlug, defaultModel]);
 
   // Reset parameters to the model defaults when a different model is picked.
   useEffect(() => {
@@ -462,11 +454,21 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
     setFieldErrors({});
   }, [selectedModel]);
 
-  // Drop references only if the model is an image-input model that cannot accept them.
+  // Keep references compatible with the selected model. Text-only models drop
+  // attached references; reference-capable models trim each slot to its limit.
   useEffect(() => {
     if (!selectedModel) return;
+
     const capabilities = capabilitiesOfKind(selectedModel, "image");
-    if (capabilities.length === 0) return;
+    if (capabilities.length === 0) {
+      if (!hasInputs) return;
+      setInputsByRole({});
+      toast.info(
+        `${selectedModel.display_name} doesn't accept references, so they were removed.`
+      );
+      return;
+    }
+
     setInputsByRole((previous) => {
       const next: Record<string, Asset[]> = {};
       let changed = false;
@@ -479,7 +481,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
       if (Object.keys(previous).some((role) => !(role in next))) changed = true;
       return changed ? next : previous;
     });
-  }, [selectedModel]);
+  }, [selectedModel, hasInputs]);
 
   useEffect(() => {
     if (!activeRole && imageCapabilities.length > 0) {
@@ -526,12 +528,11 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   );
 
   function addReference(asset: Asset, role?: string) {
-    const capabilities =
-      imageCapabilities.length > 0
-        ? imageCapabilities
-        : capabilitiesOfKind(selectedModel, "image");
+    const capabilities = imageCapabilities;
     if (capabilities.length === 0) {
-      toast.error("This model does not accept image references.");
+      toast.error(
+        `${selectedModel?.display_name ?? "This model"} doesn't accept references. Choose an image model first.`
+      );
       return;
     }
 
@@ -670,15 +671,11 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
     if (inFlight.current || mutation.isPending || !selectedModel) return;
 
     const errors = validateParamValues(selectedModel.input_schema, params);
-    const missingCapability = imageCapabilities.find(
-      (capability) =>
-        capability.required && (inputsByRole[capability.role]?.length ?? 0) === 0
-    );
     const noImageSupport = hasInputs && imageCapabilities.length === 0;
     const inputError = noImageSupport
-      ? "This model does not accept image inputs."
-      : missingCapability
-        ? `Choose a ${missingCapability.label.toLowerCase()} for this flow.`
+      ? `${selectedModel.display_name} doesn't accept references.`
+      : missingRequiredInput
+        ? `Choose a ${missingRequiredInput.label.toLowerCase()} for this flow.`
         : undefined;
 
     setFieldErrors(errors);
@@ -714,10 +711,6 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   }
 
   function openReferencePicker() {
-    if (imageCapabilities.length === 0) {
-      toast.error("This model does not accept image references.");
-      return;
-    }
     setIsAdvancedOpen(false);
     setIsReferenceOpen((open) => !open);
   }
@@ -812,7 +805,8 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
 
   const credits = selectedModel?.cost_credits ?? "—";
   const referenceCount = attachedAssets.length;
-  const canGenerate = Boolean(selectedModel) && !mutation.isPending;
+  const canGenerate =
+    Boolean(selectedModel) && !mutation.isPending && !missingRequiredInput;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -865,6 +859,27 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
       {/* Prompt dock */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-[#0B0C10] via-[#0B0C10]/95 to-transparent px-3 pb-3 pt-10 sm:px-6 sm:pb-5">
         <div className="pointer-events-auto mx-auto w-full max-w-5xl">
+          {missingRequiredInput && selectedModel && (
+            <div
+              role="alert"
+              className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-200"
+            >
+              <span className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>
+                  <span className="font-semibold">{selectedModel.display_name}</span> requires a{" "}
+                  {missingRequiredInput.label.toLowerCase()} before you can generate.
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={openReferencePicker}
+                className="rounded-lg border border-amber-300/40 bg-amber-300/10 px-2.5 py-1 font-semibold text-amber-100 transition-colors hover:bg-amber-300/20 focus:outline-none focus:ring-2 focus:ring-amber-300/60"
+              >
+                Add reference
+              </button>
+            </div>
+          )}
           <form onSubmit={handleSubmit} noValidate>
             <div className="flex items-stretch gap-2 sm:gap-3">
               {/* Output type toggle */}
@@ -1147,8 +1162,8 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
 
                       {imageCapabilities.length === 0 ? (
                         <p className="px-1 py-4 text-center text-xs text-[#9AA1B2]">
-                          The selected model does not accept images. Pick another model or switch
-                          output type.
+                          {selectedModel?.display_name ?? "The selected model"} doesn&apos;t accept
+                          references. Pick an image model to attach one.
                         </p>
                       ) : (
                         <ReferenceGrid
@@ -1160,19 +1175,21 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                         />
                       )}
 
-                      <button
-                        type="button"
-                        onClick={() => uploadInputRef.current?.click()}
-                        disabled={isUploading}
-                        className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#262A35] px-3 py-2 text-[11px] font-medium text-[#9AA1B2] hover:border-[#7C5CFF]/50 hover:text-[#E8EAF0] disabled:opacity-50"
-                      >
-                        {isUploading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#A995FF]" />
-                        ) : (
-                          <UploadCloud className="h-3.5 w-3.5 text-[#A995FF]" />
-                        )}
-                        Upload a new reference
-                      </button>
+                      {imageCapabilities.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => uploadInputRef.current?.click()}
+                          disabled={isUploading}
+                          className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#262A35] px-3 py-2 text-[11px] font-medium text-[#9AA1B2] hover:border-[#7C5CFF]/50 hover:text-[#E8EAF0] disabled:opacity-50"
+                        >
+                          {isUploading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-[#A995FF]" />
+                          ) : (
+                            <UploadCloud className="h-3.5 w-3.5 text-[#A995FF]" />
+                          )}
+                          Upload a new reference
+                        </button>
+                      )}
                     </div>
                   )}
 
