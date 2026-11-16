@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { makeSessionCookie, resetMockBackend } from "./helpers";
+import { makeSessionCookie, resetMockBackend, showTabsView } from "./helpers";
 
 // 1x1 transparent PNG
 const TINY_PNG_BUFFER = Buffer.from(
@@ -18,6 +18,7 @@ test.describe("Asset upload E2E", () => {
 
     // Project header loads
     await expect(page.getByRole("heading", { name: /Brand Launch/i })).toBeVisible();
+    await showTabsView(page);
 
     // Seeded asset visible
     await expect(page.getByText("seeded_photo.png")).toBeVisible();

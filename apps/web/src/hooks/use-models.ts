@@ -9,16 +9,27 @@ export type TaskType =
   | "text_to_video"
   | "image_to_video";
 
+export interface ModelInputCapability {
+  role: string;
+  kind: string;
+  required: boolean;
+  max_count: number;
+  label: string;
+}
+
 export interface StudioModel {
   id: string;
   slug: string;
   display_name: string;
   task_type: TaskType | string;
   provider_id: string;
+  /** Provider-native model id; shared by task-specific variants of one model. */
+  provider_model?: string;
   input_schema: ModelInputSchema;
   default_params: Record<string, string | number | boolean | null>;
   cost_credits: string;
   required_input_roles: string[];
+  input_capabilities?: ModelInputCapability[];
 }
 
 /** Fetch enabled models, optionally filtered to a single task type. */

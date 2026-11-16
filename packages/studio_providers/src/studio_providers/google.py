@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import uuid
@@ -108,8 +109,6 @@ class GoogleProvider(GenerationProvider):
             try:
                 r = await self._client.get(url, timeout=15.0)
                 if r.is_success:
-                    import base64
-
                     b64_data = base64.b64encode(r.content).decode("ascii")
                     mime = r.headers.get("content-type", "image/png").split(";")[0]
                     return {
@@ -209,7 +208,7 @@ class GoogleProvider(GenerationProvider):
 
         for inp in req.inputs:
             if inp.role in ("init_image", "reference_image"):
-                instance["image"] = self._format_input_image(inp.url)
+                instance["image"] = await self._format_input_image(inp.url)
 
         sample_count = int(
             req.params.get("num_images")
@@ -277,7 +276,9 @@ class GoogleProvider(GenerationProvider):
 
         for inp in req.inputs:
             if inp.role in ("init_image", "first_frame", "reference_image"):
-                instance["image"] = self._format_input_image(inp.url)
+                instance["image"] = await self._format_input_image(inp.url)
+            elif inp.role == "last_frame":
+                instance["lastFrame"] = await self._format_input_image(inp.url)
 
         aspect_ratio = req.params.get("aspect_ratio") or req.params.get("aspectRatio") or "16:9"
         duration_val = (
@@ -336,13 +337,36 @@ class GoogleProvider(GenerationProvider):
 
         return ProviderJobRef(provider_id=self.id, provider_job_id=op_name)
 
-    def _format_input_image(self, url: str) -> dict[str, Any]:
-        """Format input image URL into Google API image payload."""
+    async def _format_input_image(self, url: str) -> dict[str, Any]:
+        """Format an input image URL into a Google API image payload.
+
+        The ``instances[].image`` field used by Imagen and Veo accepts inline
+        base64 bytes or a Cloud Storage URI. Arbitrary HTTP URLs (including
+        signed storage URLs) must be downloaded and inlined, otherwise the
+        API silently ignores the reference.
+        """
         if url.startswith("data:"):
             parts = url.split(",", 1)
             header = parts[0].removeprefix("data:")
             mime = header.split(";")[0] if ";" in header else "image/png"
             b64_data = parts[1] if len(parts) > 1 else ""
+            return {
+                "bytesBase64Encoded": b64_data,
+                "mimeType": mime or "image/png",
+            }
+        if url.startswith("gs://"):
+            return {"gcsUri": url}
+        if url.startswith(("http://", "https://")):
+            try:
+                r = await self._client.get(url, timeout=15.0)
+            except httpx.HTTPError as exc:
+                raise TransientProviderError(f"Failed to fetch image input {url}: {exc}") from exc
+            if not r.is_success:
+                raise TransientProviderError(
+                    f"Failed to fetch image input {url}: HTTP {r.status_code}"
+                )
+            b64_data = base64.b64encode(r.content).decode("ascii")
+            mime = r.headers.get("content-type", "image/png").split(";")[0]
             return {
                 "bytesBase64Encoded": b64_data,
                 "mimeType": mime or "image/png",

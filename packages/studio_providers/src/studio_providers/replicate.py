@@ -37,17 +37,30 @@ _STATUS_MAP: dict[str, ProviderJobState] = {
 _WEBHOOK_TOLERANCE_SECONDS = 300
 
 # Replicate models do not share a single input schema. These maps keep the
-# model-specific image input names in one place instead of leaking them into
-# the catalog or the worker.
+# model-specific input names in one place instead of leaking them into the
+# catalog or the worker. A model missing from these maps falls back to the
+# generic ``image`` slot, which is what Topaz, CodeFormer, and FLUX.1 dev use.
+# Single-image slot: only the first source image is sent under this key.
 _IMAGE_INPUT_KEY: dict[str, str] = {
+    "black-forest-labs/flux-kontext-pro": "input_image",
+    "black-forest-labs/flux-kontext-max": "input_image",
+    "black-forest-labs/flux-1.1-pro": "image_prompt",
+    "xlabs-ai/flux-dev-controlnet": "control_image",
     "tencentarc/gfpgan": "img",
 }
+# List-style image slots: every source image is sent as a list under this key.
 _IMAGE_LIST_INPUT_KEY: dict[str, str] = {
     "black-forest-labs/flux-2-pro": "input_images",
     "google/nano-banana": "image_input",
 }
 _FIRST_FRAME_INPUT_KEY: dict[str, str] = {
     "minimax/video-01": "first_frame_image",
+}
+# Models with a dedicated reference-image slot that is distinct from the
+# source/init image slot. Reference images must not fall through to the
+# generic ``image`` key or the provider silently drops them.
+_REFERENCE_IMAGE_INPUT_KEY: dict[str, str] = {
+    "minimax/video-01": "subject_reference",
 }
 
 
@@ -97,8 +110,14 @@ class ReplicateProvider:
         # inputs under a different key, so keep those quirks in one place.
         image_urls: list[str] = []
         for inp in req.inputs:
-            if inp.role in ("init_image", "reference_image"):
+            if inp.role == "init_image":
                 image_urls.append(inp.url)
+            elif inp.role == "reference_image":
+                reference_key = _REFERENCE_IMAGE_INPUT_KEY.get(req.model)
+                if reference_key:
+                    input_payload[reference_key] = inp.url
+                else:
+                    image_urls.append(inp.url)
             elif inp.role == "first_frame":
                 first_frame_key = _FIRST_FRAME_INPUT_KEY.get(req.model, "first_frame")
                 input_payload[first_frame_key] = inp.url

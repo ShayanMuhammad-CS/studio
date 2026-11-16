@@ -134,6 +134,14 @@ class TestGoogleSubmit:
     @respx.mock
     async def test_submit_maps_input_images(self) -> None:
         provider = _make_provider()
+        image_bytes = b"\x89PNG\r\n\x1a\nfake_bytes"
+        respx.get("https://example.com/source.png").mock(
+            return_value=httpx.Response(
+                200,
+                content=image_bytes,
+                headers={"content-type": "image/png"},
+            )
+        )
         route = respx.post(f"{GOOGLE_BASE}/v1beta/models/{MODEL}:predict?key={API_KEY}").mock(
             return_value=httpx.Response(200, json=IMAGEN_PREDICT_RESPONSE)
         )
@@ -147,7 +155,26 @@ class TestGoogleSubmit:
 
         sent = json.loads(route.calls[0].request.content)
         instance = sent["instances"][0]
-        assert instance["image"]["imageUri"] == "https://example.com/source.png"
+        assert instance["image"]["bytesBase64Encoded"] == base64.b64encode(image_bytes).decode()
+        assert instance["image"]["mimeType"] == "image/png"
+        assert "imageUri" not in instance["image"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_submit_fails_when_input_image_cannot_be_fetched(self) -> None:
+        provider = _make_provider()
+        respx.get("https://example.com/missing.png").mock(return_value=httpx.Response(404))
+        respx.post(f"{GOOGLE_BASE}/v1beta/models/{MODEL}:predict?key={API_KEY}").mock(
+            return_value=httpx.Response(200, json=IMAGEN_PREDICT_RESPONSE)
+        )
+
+        req = _text_to_image_req(
+            inputs=[
+                ProviderInput(role="init_image", url="https://example.com/missing.png"),
+            ]
+        )
+        with pytest.raises(TransientProviderError, match="Failed to fetch image input"):
+            await provider.submit(req)
 
     @pytest.mark.asyncio
     @respx.mock
