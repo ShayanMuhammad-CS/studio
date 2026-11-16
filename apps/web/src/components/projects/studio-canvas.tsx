@@ -221,19 +221,17 @@ function CanvasPinCard({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(pin)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen(pin);
-        }
-      }}
-      aria-label={`Open ${pin.label}`}
-      className="group relative mb-4 w-full break-inside-avoid overflow-hidden rounded-2xl border border-[#262A35] bg-[#14161C] text-left transition-all hover:border-[#7C5CFF]/60 hover:shadow-[0_8px_30px_rgba(124,92,255,0.15)] focus:outline-none focus:ring-2 focus:ring-[#7C5CFF]"
+      className="group relative mb-4 w-full break-inside-avoid overflow-hidden rounded-2xl border border-[#262A35] bg-[#14161C] text-left transition-all hover:border-[#7C5CFF]/60 hover:shadow-[0_8px_30px_rgba(124,92,255,0.15)]"
       style={{ breakInside: "avoid" }}
     >
+      {/* The overlay button makes the whole card a single keyboard target.
+          Action buttons are siblings so they never nest inside it. */}
+      <button
+        type="button"
+        onClick={() => onOpen(pin)}
+        aria-label={`Open ${pin.label}`}
+        className="absolute inset-0 z-10 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7C5CFF]"
+      />
       <div
         className="relative w-full overflow-hidden bg-[#0E1015]"
         style={{ aspectRatio: String(ratio) }}
@@ -294,7 +292,7 @@ function CanvasPinCard({
           )}
         </div>
 
-        <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/45 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 bg-black/45 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <button
             type="button"
             onClick={(event) => {
@@ -303,7 +301,7 @@ function CanvasPinCard({
             }}
             title="Open asset details"
             aria-label={`Open details for ${pin.label}`}
-            className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#14161C]/90 px-3 py-1.5 text-[11px] font-medium text-[#E8EAF0] shadow-lg hover:bg-[#1B1E26]"
+            className="pointer-events-none flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#14161C]/90 px-3 py-1.5 text-[11px] font-medium text-[#E8EAF0] shadow-lg hover:bg-[#1B1E26] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
           >
             <Maximize2 className="h-3.5 w-3.5 text-[#A995FF]" />
             Details
@@ -317,7 +315,7 @@ function CanvasPinCard({
               }}
               title="Use as a reference"
               aria-label={`Use ${pin.label} as a reference`}
-              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#14161C]/90 px-3 py-1.5 text-[11px] font-medium text-[#E8EAF0] shadow-lg hover:bg-[#1B1E26]"
+              className="pointer-events-none flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#14161C]/90 px-3 py-1.5 text-[11px] font-medium text-[#E8EAF0] shadow-lg hover:bg-[#1B1E26] group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
             >
               <Plus className="h-3.5 w-3.5 text-[#A995FF]" />
               Reference
@@ -1046,13 +1044,18 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                   ) : modelsError ? (
                     <span className={`${chipClasses} text-red-400`}>Models unavailable</span>
                   ) : pickerModels.length > 0 && selectedFamily ? (
-                    <ModelPicker
-                      models={pickerModels}
-                      value={selectedFamily.key}
-                      onChange={setSelectedFamilyKey}
-                      labelledBy="studio-canvas-model"
-                      variant="compact"
-                    />
+                    <>
+                      <span id="studio-canvas-model" className="sr-only">
+                        Model
+                      </span>
+                      <ModelPicker
+                        models={pickerModels}
+                        value={selectedFamily.key}
+                        onChange={setSelectedFamilyKey}
+                        labelledBy="studio-canvas-model"
+                        variant="compact"
+                      />
+                    </>
                   ) : (
                     <span className={`${chipClasses} text-[#9AA1B2]`}>No models</span>
                   )}

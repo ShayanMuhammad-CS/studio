@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { makeSessionCookie, resetMockBackend } from "./helpers";
+import { makeSessionCookie, resetMockBackend, showTabsView } from "./helpers";
 
 async function expectNoA11yViolations(page: Page) {
   const results = await new AxeBuilder({ page })
@@ -38,6 +38,10 @@ test.describe("Accessibility and responsiveness", () => {
   test("project workspace has no axe violations across tabs", async ({ page }) => {
     await page.goto("/projects/proj-e2e");
     await expect(page.getByRole("heading", { name: /Brand Launch/i })).toBeVisible();
+    // Canvas is the default workspace and must be accessible on its own.
+    await expectNoA11yViolations(page);
+
+    await showTabsView(page);
     await expectNoA11yViolations(page);
 
     await page.getByRole("tab", { name: /Generation Composer/i }).click();

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { makeSessionCookie, resetMockBackend } from "./helpers";
+import { makeSessionCookie, resetMockBackend, showTabsView } from "./helpers";
 
 test.describe("Launch flows", () => {
   test.describe("passwordless sign-up", () => {
@@ -48,6 +48,7 @@ test.describe("Launch flows", () => {
     test("runs an image-to-video generation from a library asset", async ({ page }) => {
       await page.goto("/projects/proj-e2e");
       await expect(page.getByRole("heading", { name: /Brand Launch/i })).toBeVisible();
+      await showTabsView(page);
       await page.getByRole("tab", { name: /Generation Composer/i }).click();
 
       // Video output + image starting point derives the image_to_video task.
@@ -71,6 +72,7 @@ test.describe("Launch flows", () => {
 
     test("cancels a running generation", async ({ page }) => {
       await page.goto("/projects/proj-e2e");
+      await showTabsView(page);
       await page.getByRole("tab", { name: /Generation Composer/i }).click();
 
       const prompt = "E2E CANCEL a slow generation";
@@ -90,6 +92,7 @@ test.describe("Launch flows", () => {
 
     test("retries a failed generation and recovers", async ({ page }) => {
       await page.goto("/projects/proj-e2e");
+      await showTabsView(page);
       await page.getByRole("tab", { name: /Generation Composer/i }).click();
 
       // The mock provider fails any prompt containing FAIL.
@@ -116,6 +119,7 @@ test.describe("Launch flows", () => {
 
     test("shows the insufficient-credits path without creating a job", async ({ page }) => {
       await page.goto("/projects/proj-e2e");
+      await showTabsView(page);
       await page.getByRole("tab", { name: /Generation Composer/i }).click();
 
       await page.getByRole("textbox", { name: "Prompt" }).fill("E2E NO_CREDITS request");

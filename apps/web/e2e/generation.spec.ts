@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { makeSessionCookie, resetMockBackend } from "./helpers";
+import { makeSessionCookie, resetMockBackend, showTabsView } from "./helpers";
 
 test.describe("Generation flow E2E", () => {
   test.beforeEach(async ({ context, request }) => {
@@ -12,6 +12,7 @@ test.describe("Generation flow E2E", () => {
   }) => {
     await page.goto("/projects/proj-e2e");
     await expect(page.getByRole("heading", { name: /Brand Launch/i })).toBeVisible();
+    await showTabsView(page);
 
     // Composer: schema-driven form loads the fake model.
     await page.getByRole("tab", { name: /Generation Composer/i }).click();

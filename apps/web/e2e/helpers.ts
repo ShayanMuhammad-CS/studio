@@ -1,4 +1,4 @@
-import { type APIRequestContext } from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
 
 export const SUPABASE_URL = "http://127.0.0.1:3101";
 export const STORAGE_KEY = `sb-${new URL(SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
@@ -41,4 +41,13 @@ export async function resetMockBackend(request: APIRequestContext): Promise<void
   if (!response.ok()) {
     throw new Error(`Mock backend reset failed with HTTP ${response.status()}`);
   }
+}
+
+/**
+ * Projects open in canvas view by default. Tests that drive the tabbed
+ * workspace (asset library, composer, job history) opt into it explicitly.
+ */
+export async function showTabsView(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Tabs view" }).click();
+  await page.getByRole("tab", { name: /Asset Library/i }).waitFor();
 }
