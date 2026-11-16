@@ -435,6 +435,14 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   );
   useJobRealtime(projectId, handleJobChange);
 
+  // Queue confirmations are transient. Clear them after a beat so the prompt
+  // dock never accumulates stale job messages.
+  useEffect(() => {
+    if (!lastJob) return;
+    const timeout = window.setTimeout(() => setLastJob(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [lastJob]);
+
   // Keep the selected family valid when the output mode or catalog changes.
   // Attaching references no longer changes the list, so this only fires when
   // the current family is not available in the active mode.
@@ -935,7 +943,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
 
               {/* Main prompt card */}
               <div className="min-w-0 flex-1 rounded-2xl border border-[#262A35] bg-[#0F1117]/95 p-2.5 shadow-card backdrop-blur-xl sm:p-3">
-                <div className="flex items-stretch gap-2 sm:gap-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:gap-3">
                   <label htmlFor="studio-canvas-prompt" className="sr-only">
                     Prompt
                   </label>
@@ -955,13 +963,13 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                         ? "Describe the image you want to create..."
                         : "Describe the video you want to create..."
                     }
-                    className="min-h-[3.25rem] flex-1 resize-none bg-transparent px-1.5 py-1 text-sm leading-relaxed text-[#E8EAF0] placeholder:text-[#9AA1B2]/80 focus:outline-none"
+                    className="col-start-1 row-start-1 min-h-[3.25rem] min-w-0 resize-none bg-transparent px-1.5 py-1 text-sm leading-relaxed text-[#E8EAF0] placeholder:text-[#9AA1B2]/80 focus:outline-none"
                   />
 
                   <button
                     type="submit"
                     disabled={!canGenerate}
-                    className="flex w-[5.5rem] shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl bg-[#D4FF3F] px-3 text-[#0B0C10] transition-all hover:bg-[#E2FF73] focus:outline-none focus:ring-2 focus:ring-[#D4FF3F] focus:ring-offset-2 focus:ring-offset-[#0F1117] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:w-24"
+                    className="col-start-2 row-span-2 row-start-1 flex w-24 flex-col items-center justify-center gap-1 rounded-xl bg-[#D4FF3F] px-3 py-2 text-[#0B0C10] transition-all hover:bg-[#E2FF73] focus:outline-none focus:ring-2 focus:ring-[#D4FF3F] focus:ring-offset-2 focus:ring-offset-[#0F1117] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:w-28"
                   >
                     {mutation.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -979,7 +987,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                 </div>
 
                 {/* Compact horizontal controls */}
-                <div className="relative mt-2">
+                <div className="relative col-start-1 row-start-2">
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   <input
                     ref={uploadInputRef}

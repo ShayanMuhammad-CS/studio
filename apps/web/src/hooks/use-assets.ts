@@ -127,6 +127,9 @@ export function useDeleteAsset(projectId?: string | null) {
     onSuccess: (deletedId) => {
       toast.success("Asset deleted");
       queryClient.invalidateQueries({ queryKey: ["assets", projectId] });
+      // Generation jobs embed their output assets. Refetch them too, otherwise
+      // the canvas can rebuild a deleted asset's pin from a cached job payload.
+      queryClient.invalidateQueries({ queryKey: ["generations", projectId] });
       queryClient.removeQueries({ queryKey: ["asset", deletedId] });
     },
     onError: (err) => {

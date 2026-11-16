@@ -163,7 +163,9 @@ export function Sidebar({
               onClick={onToggleCollapse}
               aria-label={isCollapsed ? "Expand navigation" : "Collapse navigation"}
               aria-pressed={isCollapsed}
-              className="group relative hidden w-full items-center justify-center rounded-xl border border-transparent px-0 py-2 text-xs font-medium text-[#9AA1B2] transition-colors hover:border-[#262A35] hover:bg-[#1B1E26] hover:text-[#E8EAF0] focus:outline-none focus:ring-2 focus:ring-[#7C5CFF] lg:flex"
+              className={`group relative hidden w-full items-center rounded-xl border border-transparent py-2 text-xs font-medium text-[#9AA1B2] transition-colors hover:border-[#262A35] hover:bg-[#1B1E26] hover:text-[#E8EAF0] focus:outline-none focus:ring-2 focus:ring-[#7C5CFF] lg:flex ${
+                isCollapsed ? "justify-center px-0" : "justify-end px-3"
+              }`}
             >
               {isCollapsed ? (
                 <PanelLeftOpen className="h-4 w-4 shrink-0 text-[#A995FF]" />
@@ -172,7 +174,9 @@ export function Sidebar({
               )}
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-[#262A35] bg-[#0F1117] px-2.5 py-1 text-[11px] font-medium text-[#E8EAF0] opacity-0 shadow-lg shadow-black/40 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                className={`pointer-events-none absolute bottom-full z-50 mb-2 whitespace-nowrap rounded-lg border border-[#262A35] bg-[#0F1117] px-2.5 py-1 text-[11px] font-medium text-[#E8EAF0] opacity-0 shadow-lg shadow-black/40 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 ${
+                  isCollapsed ? "left-1/2 -translate-x-1/2" : "right-0"
+                }`}
               >
                 {isCollapsed ? "Expand navigation" : "Collapse sidebar"}
               </span>
