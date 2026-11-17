@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ChevronDown, Check, Image as LensIcon, X } from "lucide-react";
 
@@ -112,7 +113,7 @@ const triggerClasses =
   "flex shrink-0 items-center gap-2 rounded-xl border border-[#262A35] bg-[#14161C] px-3 py-2 text-left transition-colors hover:border-[#3A3F4D] focus:outline-none focus:ring-2 focus:ring-[#7C5CFF]";
 
 const columnContainer =
-  "flex flex-col gap-2 max-h-[26rem] overflow-y-auto pr-2 [scrollbar-width:thin] [scrollbar-color:#3A3F4D_#0F1117]";
+  "flex flex-col gap-2 max-h-[26rem] overflow-y-auto pr-2 w-full flex-shrink-0 min-w-[20rem] group-hover:w-[28rem] transition-width duration-200 [scrollbar-width:thin] [scrollbar-color:#3A3F4D_#0F1117]";
 
 const optionClasses = (isSelected: boolean) =>
   `flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
@@ -144,7 +145,7 @@ function CameraLensColumn({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 min-w-[20rem] group">
       <div className="flex items-center gap-2">
         <span className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md border border-[#262A35] bg-[#0B0C10] text-[#9AA1B2]" aria-hidden="true">
           {icon}
@@ -311,21 +312,22 @@ export function CameraLensSelector({
         />
       </button>
 
-      {open && (
-        <>
-          <div
-            ref={backdropRef}
-            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
-            onClick={closePanel}
-            aria-hidden="true"
-          />
-          <div
-            ref={panelRef}
-            id="camera-lens-panel"
-            role="region"
-            aria-label="Camera & lens selection"
-            className="fixed z-50 left-4 right-4 top-1/6 bottom-1/6 sm:left-[26%] flex flex-col overflow-hidden rounded-2xl border border-[#262A35] bg-[#0F1117] shadow-2xl shadow-black/80"
-          >
+      {open &&
+        createPortal(
+          <>
+            <div
+              ref={backdropRef}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              onClick={closePanel}
+              aria-hidden="true"
+            />
+            <div
+              ref={panelRef}
+              id="camera-lens-panel"
+              role="region"
+              aria-label="Camera & lens selection"
+              className="fixed z-50 left-1/2 top-1/6 -translate-x-1/2 min-w-[44rem] max-w-[88vw] flex flex-col overflow-hidden rounded-2xl border border-[#262A35] bg-[#0F1117] shadow-2xl shadow-black/80"
+            >
             <div className="flex shrink-0 items-center justify-between gap-2 px-5 py-4 border-b border-[#262A35] bg-[#0F1117]/50">
               <div className="flex items-center gap-2">
                 <Camera className="h-5 w-5 shrink-0 text-[#A995FF]" />
@@ -344,7 +346,7 @@ export function CameraLensSelector({
               <p className="mb-4 text-xs text-[#9AA1B2]">
                 Leave either column on None / auto to exclude it from the prompt.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="flex gap-6">
                 <CameraLensColumn
                   title="Camera"
                   icon={<Camera />}
@@ -374,8 +376,9 @@ export function CameraLensSelector({
               </button>
             </div>
           </div>
-        </>
-      )}
+          </>,
+          document.body
+        )}
     </div>
   );
 }
