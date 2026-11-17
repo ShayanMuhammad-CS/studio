@@ -23,6 +23,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AssetDetailDrawer } from "@/components/assets/asset-detail-drawer";
+import {
+  applyCameraLensToPrompt,
+  CAMERA_NONE,
+  CameraLensSelector,
+  LENS_NONE,
+} from "@/components/composer/camera-lens-selector";
 import { ModelPicker } from "@/components/composer/model-picker";
 import { SchemaParamsForm } from "@/components/composer/schema-params-form";
 import {
@@ -351,6 +357,8 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [camera, setCamera] = useState(CAMERA_NONE);
+  const [lens, setLens] = useState(LENS_NONE);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const referenceRef = useRef<HTMLDivElement>(null);
@@ -635,7 +643,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
     return {
       model: model.slug,
       task_type: taskType,
-      prompt: prompt.trim() ? prompt.trim() : null,
+      prompt: applyCameraLensToPrompt(prompt, camera, lens) || null,
       inputs,
       params: normalizeParamValues(model.input_schema, params),
     };
@@ -832,13 +840,25 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
-        className="flex-1 overflow-y-auto px-4 pb-64 pt-2 sm:px-6 lg:px-8"
+        className="relative flex-1 overflow-y-auto px-4 pb-64 pt-2 sm:px-6 lg:px-8"
         style={{
           backgroundImage:
             "radial-gradient(circle at 1px 1px, rgba(154,161,178,0.14) 1px, transparent 0)",
           backgroundSize: "22px 22px",
         }}
       >
+        {/* Camera & lens selector rail on the right side of the canvas. */}
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30">
+          <CameraLensSelector
+            camera={camera}
+            lens={lens}
+            onChange={(nextCamera, nextLens) => {
+              setCamera(nextCamera);
+              setLens(nextLens);
+            }}
+          />
+        </div>
+
         {pins.length === 0 ? (
           <div className="flex h-full min-h-[12rem] items-center justify-center px-6 text-center">
             <div className="max-w-sm space-y-2">
