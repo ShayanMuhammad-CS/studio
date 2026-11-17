@@ -326,7 +326,7 @@ export function CameraLensSelector({
               id="camera-lens-panel"
               role="region"
               aria-label="Camera & lens selection"
-              className="fixed z-50 left-1/2 top-1/6 -translate-x-1/2 min-w-[44rem] max-w-[88vw] flex flex-col overflow-hidden rounded-2xl border border-[#262A35] bg-[#0F1117] shadow-2xl shadow-black/80"
+              className="fixed z-50 left-1/2 top-1/6 bottom-1/6 -translate-x-1/2 min-w-[44rem] max-w-[88vw] flex flex-col overflow-hidden rounded-2xl border border-[#262A35] bg-[#0F1117] shadow-2xl shadow-black/80"
             >
             <div className="flex shrink-0 items-center justify-between gap-2 px-5 py-4 border-b border-[#262A35] bg-[#0F1117]/50">
               <div className="flex items-center gap-2">
