@@ -28,10 +28,11 @@ from studio_core.repositories import (
     JobRepository,
     ModelRepository,
 )
-from studio_core.state_machine import JobStateMachine
+from studio_core.state_machine import TERMINAL_STATES, JobStateMachine
 from studio_providers.base import (
     PermanentProviderError,
     ProviderInput,
+    ProviderJobRef,
     ProviderJobState,
     ProviderRequest,
     RateLimitedError,
@@ -52,6 +53,21 @@ def compute_job_token(job_id: UUID, signing_secret: str) -> str:
         msg=str(job_id).encode(),
         digestmod=hashlib.sha256,
     ).hexdigest()
+
+
+async def _cancel_orphaned_prediction(
+    provider: Any,
+    provider_id: str,
+    provider_job_id: str,
+) -> None:
+    """Best-effort cancel of a prediction this worker no longer owns."""
+    try:
+        await provider.cancel(
+            ProviderJobRef(provider_id=provider_id, provider_job_id=provider_job_id)
+        )
+        logger.warning("Cancelled orphaned provider prediction %s", provider_job_id)
+    except Exception as exc:
+        logger.error("Failed to cancel orphaned provider prediction %s: %s", provider_job_id, exc)
 
 
 async def run_generation(ctx: dict[str, Any], job_id_raw: str | UUID) -> None:
@@ -206,6 +222,12 @@ async def run_generation(ctx: dict[str, Any], job_id_raw: str | UUID) -> None:
                 job_ref.provider_job_id,
             )
 
+            # Persist the provider id before changing status. If this worker
+            # stalls or the guarded transition loses a race, the prediction is
+            # still identifiable and its webhook can finalize the job instead of
+            # the reconciler re-submitting a duplicate.
+            await job_repo.set_provider_job_id(job.id, job_ref.provider_job_id)
+
             # Record event
             await event_repo.append(
                 job_id=job.id,
@@ -217,12 +239,90 @@ async def run_generation(ctx: dict[str, Any], job_id_raw: str | UUID) -> None:
             )
 
             # Transition submitting -> running
-            await state_machine.transition(
+            updated = await state_machine.transition(
                 job.id,
                 expected=JobStatus.SUBMITTING,
                 new=JobStatus.RUNNING,
                 provider_job_id=job_ref.provider_job_id,
             )
+            if updated is None:
+                # A webhook or another worker changed the job while we were
+                # submitting. Decide whether this prediction is still ours.
+                current = await job_repo.get_by_id(job.id)
+                if current is None:
+                    logger.error(
+                        "Job %s disappeared after submitting prediction %s",
+                        job_id,
+                        job_ref.provider_job_id,
+                    )
+                    await _cancel_orphaned_prediction(
+                        provider, model.provider_id, job_ref.provider_job_id
+                    )
+                    return
+
+                if current.provider_job_id != job_ref.provider_job_id:
+                    logger.error(
+                        "Job %s now owns prediction %s; cancelling duplicate prediction %s",
+                        job_id,
+                        current.provider_job_id,
+                        job_ref.provider_job_id,
+                    )
+                    await _cancel_orphaned_prediction(
+                        provider, model.provider_id, job_ref.provider_job_id
+                    )
+                    return
+
+                if current.status in TERMINAL_STATES:
+                    logger.info(
+                        "Job %s already completed via webhook for prediction %s; skipping",
+                        job_id,
+                        job_ref.provider_job_id,
+                    )
+                    return
+
+                if current.status == JobStatus.QUEUED:
+                    # The reconciler reset the job while this prediction was
+                    # being submitted. Reclaim the job rather than orphaning it.
+                    logger.warning(
+                        "Job %s was reset to queued during submit; reclaiming for prediction %s",
+                        job_id,
+                        job_ref.provider_job_id,
+                    )
+                    reclaimed = await state_machine.transition(
+                        job.id,
+                        expected=JobStatus.QUEUED,
+                        new=JobStatus.SUBMITTING,
+                        event_payload={"triggered_by": "submit_reclaim"},
+                    )
+                    advanced = (
+                        await state_machine.transition(
+                            job.id,
+                            expected=JobStatus.SUBMITTING,
+                            new=JobStatus.RUNNING,
+                            provider_job_id=job_ref.provider_job_id,
+                        )
+                        if reclaimed is not None
+                        else None
+                    )
+                    if advanced is None:
+                        logger.error(
+                            "Job %s could not be reclaimed after reset; prediction %s may be"
+                            " orphaned",
+                            job_id,
+                            job_ref.provider_job_id,
+                        )
+                        return
+                    job = advanced
+                else:
+                    # The same prediction is already recorded and the job is
+                    # running or finalizing — do not submit again.
+                    logger.info(
+                        "Job %s already advanced to %s for prediction %s",
+                        job_id,
+                        current.status,
+                        job_ref.provider_job_id,
+                    )
+                    job = current
 
             # Check if job completed synchronously (e.g. Google Imagen),
             # and enqueue finalize immediately without waiting for reconciler

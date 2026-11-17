@@ -184,6 +184,7 @@ async def test_reconcile_stale_submitting_reverts_to_queued(test_config: WorkerC
 
     pool = make_mock_pool(db.make_conn())
     mock_redis = AsyncMock()
+    mock_redis.exists = AsyncMock(return_value=0)
     ctx = {"db_pool": pool, "redis_pool": mock_redis, "config": test_config}
 
     now = t0 + timedelta(minutes=4)
@@ -195,6 +196,43 @@ async def test_reconcile_stale_submitting_reverts_to_queued(test_config: WorkerC
     assert job_dict["status"] == "queued"
     assert job_dict["attempt"] == 1
     mock_enqueue.assert_called_once_with(mock_redis, TASK_RUN_GENERATION, job_id)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_stale_submitting_skips_live_task(test_config: WorkerConfig) -> None:
+    """A job whose run_generation task is still alive must not be reset.
+
+    Resetting it would make the worker submit a second provider prediction.
+    """
+    db = MockDB()
+    job_id = uuid.uuid4()
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    job_dict = make_job_row(
+        job_id=job_id,
+        status="submitting",
+        attempt=0,
+        max_attempts=3,
+        heartbeat_at=t0,
+        queued_at=t0,
+    )
+    db.add_job(job_dict)
+
+    pool = make_mock_pool(db.make_conn())
+    mock_redis = AsyncMock()
+    mock_redis.exists = AsyncMock(return_value=1)
+    ctx = {"db_pool": pool, "redis_pool": mock_redis, "config": test_config}
+
+    now = t0 + timedelta(minutes=10)
+
+    with patch("worker.tasks.reconciler.enqueue", AsyncMock()) as mock_enqueue:
+        reconciled = await reconcile_jobs(ctx, now=now)
+
+    assert reconciled == 0
+    assert job_dict["status"] == "submitting"
+    assert job_dict["attempt"] == 0
+    mock_enqueue.assert_not_called()
+    mock_redis.exists.assert_awaited_once_with(f"arq:in-progress:run_generation:{job_id}")
 
 
 @pytest.mark.asyncio

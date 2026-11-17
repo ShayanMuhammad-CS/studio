@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from studio_core.settings import get_settings
+from studio_providers.base import ProviderJobState
 
 
 def _make_app(mock_conn: AsyncMock) -> FastAPI:
@@ -89,6 +90,7 @@ def fake_provider_patch() -> Any:
     mock_event = MagicMock()
     mock_event.provider_id = "fake"
     mock_event.provider_job_id = "prov-123"
+    mock_event.state = ProviderJobState.SUCCEEDED
     mock_adapter.verify_webhook = MagicMock(return_value=mock_event)
 
     with patch("api.routers.webhooks.get_provider", return_value=mock_adapter) as p:
@@ -271,4 +273,132 @@ async def test_webhook_duplicate_delivery_is_noop(fake_provider_patch: Any) -> N
                 assert resp.status_code == 200
 
     # No finalize should have been enqueued (job was already finalizing)
+    assert "finalize_generation" not in enqueue_calls
+
+
+# ── Terminal webhook during submitting (lost transition recovery) ─────────────
+
+
+@pytest.mark.asyncio
+async def test_webhook_terminal_for_submitting_job_advances_to_finalizing(
+    fake_provider_patch: Any,
+) -> None:
+    """A completion arriving while the job is still submitting must not be dropped.
+
+    This is the regression that used to let the reconciler reset the job and
+    submit a second provider prediction.
+    """
+    job_id = uuid.uuid4()
+    token = _make_token(job_id)
+    job = _job_row(job_id, status="submitting")
+    job["provider_job_id"] = None
+    job["started_at"] = None
+
+    enqueue_calls: list[str] = []
+    transition_queries: list[str] = []
+
+    conn = _mock_conn()
+
+    async def fetchrow_se(query: str, *args: Any) -> dict[str, Any] | None:
+        if "UPDATE public.generation_jobs" in query:
+            transition_queries.append(query)
+            updated = dict(job)
+            if "status = 'submitting'" in query:
+                updated["status"] = "running"
+                updated["provider_job_id"] = "prov-123"
+                return updated
+            if "status = 'running'" in query:
+                updated["status"] = "finalizing"
+                updated["provider_job_id"] = "prov-123"
+                return updated
+            return None
+        if "SELECT" in query and "generation_jobs" in query:
+            return job
+        if "INSERT INTO public.job_events" in query:
+            return {
+                "id": 1,
+                "job_id": job_id,
+                "type": "state_change",
+                "from_status": None,
+                "to_status": None,
+                "payload": None,
+                "created_at": datetime.now(UTC),
+            }
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_se)
+    app = _make_app(conn)
+
+    async def mock_enqueue(pool: Any, task_name: str, jid: UUID, **kwargs: Any) -> None:
+        enqueue_calls.append(task_name)
+
+    with patch("api.routers.webhooks.enqueue", side_effect=mock_enqueue):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                f"/internal/webhooks/fake/{job_id}?token={token}",
+                content=b'{"id": "prov-123", "status": "succeeded"}',
+                headers={"Content-Type": "application/json"},
+            )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert any("status = 'submitting'" in q for q in transition_queries)
+    assert any("status = 'running'" in q for q in transition_queries)
+    assert enqueue_calls.count("finalize_generation") == 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_stale_prediction_id_is_noop() -> None:
+    """A late callback for an old prediction must not touch the current attempt."""
+    job_id = uuid.uuid4()
+    token = _make_token(job_id)
+    job = _job_row(job_id, status="running")
+    job["provider_job_id"] = "prov-current"
+
+    mock_event = MagicMock()
+    mock_event.provider_id = "fake"
+    mock_event.provider_job_id = "prov-old"
+    mock_event.state = ProviderJobState.SUCCEEDED
+    mock_adapter = MagicMock()
+    mock_adapter.verify_webhook = MagicMock(return_value=mock_event)
+
+    enqueue_calls: list[str] = []
+    conn = _mock_conn()
+
+    async def fetchrow_se(query: str, *args: Any) -> dict[str, Any] | None:
+        if "UPDATE public.generation_jobs" in query:
+            raise AssertionError("stale webhook must not change job state")
+        if "SELECT" in query and "generation_jobs" in query:
+            return job
+        if "INSERT INTO public.job_events" in query:
+            return {
+                "id": 1,
+                "job_id": job_id,
+                "type": "webhook",
+                "from_status": None,
+                "to_status": None,
+                "payload": None,
+                "created_at": datetime.now(UTC),
+            }
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_se)
+    app = _make_app(conn)
+
+    async def mock_enqueue(pool: Any, task_name: str, jid: UUID, **kwargs: Any) -> None:
+        enqueue_calls.append(task_name)
+
+    with (
+        patch("api.routers.webhooks.get_provider", return_value=mock_adapter),
+        patch("api.routers.webhooks.enqueue", side_effect=mock_enqueue),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                f"/internal/webhooks/fake/{job_id}?token={token}",
+                content=b'{"id": "prov-old", "status": "succeeded"}',
+                headers={"Content-Type": "application/json"},
+            )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "no-op"
     assert "finalize_generation" not in enqueue_calls

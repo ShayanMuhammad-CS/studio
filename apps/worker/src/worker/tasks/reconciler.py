@@ -21,6 +21,7 @@ from studio_core.queue import (
     TASK_FINALIZE_GENERATION,
     TASK_RUN_GENERATION,
     enqueue,
+    is_task_in_progress,
 )
 from studio_core.repositories import EventRepository, ModelRepository
 from studio_core.state_machine import JobStateMachine
@@ -163,6 +164,17 @@ async def reconcile_jobs(
             job_id = row["id"]
             attempt = row["attempt"] + 1
             max_attempts = row["max_attempts"]
+
+            # A stale heartbeat can simply mean the submit call is slow (for
+            # example a provider or DB stall). Resetting a job whose ARQ task is
+            # still running would submit a second prediction, so leave it alone.
+            if await is_task_in_progress(redis_pool, TASK_RUN_GENERATION, job_id):
+                logger.info(
+                    "Job %s has a stale heartbeat but its run_generation task is still alive;"
+                    " skipping recovery",
+                    job_id,
+                )
+                continue
 
             if attempt >= max_attempts:
                 logger.error("Job %s stuck in submitting exhausted max attempts", job_id)

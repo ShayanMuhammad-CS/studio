@@ -304,6 +304,21 @@ class JobRepository:
             data["params"] = json.loads(data["params"])
         return GenerationJob.model_validate(data)
 
+    async def set_provider_job_id(self, job_id: UUID, provider_job_id: str) -> None:
+        """Persist a provider job id without changing the job status.
+
+        Called immediately after a provider submission so the id survives even
+        if the guarded ``submitting -> running`` transition fails or the worker
+        stalls. The ``IS NULL`` guard keeps an id that was already recorded (for
+        example by a concurrent webhook) instead of overwriting it.
+        """
+        query = """
+            UPDATE public.generation_jobs
+            SET provider_job_id = $2
+            WHERE id = $1 AND provider_job_id IS NULL
+        """
+        await self.conn.execute(query, job_id, provider_job_id)
+
     async def get_by_idempotency_key(
         self, workspace_id: UUID, idempotency_key: str
     ) -> GenerationJob | None:

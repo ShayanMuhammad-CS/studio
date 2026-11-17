@@ -9,6 +9,13 @@ from urllib.parse import urlparse
 
 import asyncpg
 
+# A hung query (for example a stalled connection through a pooler) used to
+# leave a worker blocked indefinitely, so a job could sit in ``submitting`` for
+# many minutes while its provider prediction finished. Bound both statement
+# execution and connection establishment.
+DEFAULT_COMMAND_TIMEOUT_S = 30.0
+DEFAULT_CONNECT_TIMEOUT_S = 10.0
+
 
 def _is_transaction_pooler(dsn: str) -> bool:
     """Return True for the Supabase/Supavisor transaction pooler (port 6543).
@@ -32,6 +39,10 @@ async def create_pool(
     """Create and return an asyncpg connection pool."""
     if "statement_cache_size" not in kwargs and _is_transaction_pooler(dsn):
         kwargs["statement_cache_size"] = 0
+    if "command_timeout" not in kwargs:
+        kwargs["command_timeout"] = DEFAULT_COMMAND_TIMEOUT_S
+    if "timeout" not in kwargs:
+        kwargs["timeout"] = DEFAULT_CONNECT_TIMEOUT_S
     pool = await asyncpg.create_pool(
         dsn=dsn,
         min_size=min_size,

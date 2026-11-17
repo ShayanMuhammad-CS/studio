@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -19,6 +20,8 @@ from studio_core.queue import (
     EnqueueError,
     arq_job_id,
     enqueue,
+    in_progress_key,
+    is_task_in_progress,
 )
 
 
@@ -86,3 +89,32 @@ async def test_enqueue_wraps_pool_errors() -> None:
 
     with pytest.raises(EnqueueError):
         await enqueue(pool, TASK_RUN_GENERATION, uuid4())
+
+
+def test_in_progress_key_uses_arq_namespaced_job_id() -> None:
+    job_id = uuid4()
+
+    assert in_progress_key(TASK_RUN_GENERATION, job_id) == (
+        f"arq:in-progress:run_generation:{job_id}"
+    )
+
+
+async def test_is_task_in_progress_reads_arq_key() -> None:
+    job_id = uuid4()
+    pool = FakeArqPool()
+    pool.exists = AsyncMock(return_value=1)  # type: ignore[attr-defined]
+
+    assert await is_task_in_progress(pool, TASK_RUN_GENERATION, job_id) is True
+    pool.exists.assert_awaited_once_with(f"arq:in-progress:run_generation:{job_id}")
+
+
+async def test_is_task_in_progress_false_without_redis() -> None:
+    assert await is_task_in_progress(None, TASK_RUN_GENERATION, uuid4()) is False
+
+
+async def test_is_task_in_progress_conservative_on_redis_error() -> None:
+    """A failed liveness check must not imply the task is dead."""
+    pool = FakeArqPool()
+    pool.exists = AsyncMock(side_effect=ConnectionError("redis down"))  # type: ignore[attr-defined]
+
+    assert await is_task_in_progress(pool, TASK_RUN_GENERATION, uuid4()) is True

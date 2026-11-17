@@ -13,6 +13,8 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from arq.constants import in_progress_key_prefix
+
 logger = logging.getLogger(__name__)
 
 # Task names must match function names registered in the ARQ WorkerSettings
@@ -30,6 +32,40 @@ def arq_job_id(task_name: str, job_id: UUID) -> str:
     job id and be silently rejected.
     """
     return f"{task_name}:{job_id}"
+
+
+def in_progress_key(task_name: str, job_id: UUID) -> str:
+    """Return the ARQ ``in-progress`` Redis key for a running task.
+
+    ARQ sets this key for the lifetime of a task and removes it when the task
+    finishes. It lets callers distinguish a genuinely stuck job from one whose
+    worker is still alive (for example while a provider submit call is slow).
+    """
+    return f"{in_progress_key_prefix}{arq_job_id(task_name, job_id)}"
+
+
+async def is_task_in_progress(redis_pool: Any, task_name: str, job_id: UUID) -> bool:
+    """Return True while ``task_name`` for ``job_id`` is running on a worker.
+
+    Returns ``True`` when Redis cannot be queried: without liveness information
+    it is unsafe for callers to assume the task has died, since doing so could
+    cause a duplicate provider submission.
+    """
+    if redis_pool is None:
+        return False
+
+    key = in_progress_key(task_name, job_id)
+    try:
+        return bool(await redis_pool.exists(key))
+    except Exception as exc:
+        logger.warning(
+            "Failed to check liveness of task=%s job_id=%s key=%s: %s",
+            task_name,
+            job_id,
+            key,
+            exc,
+        )
+        return True
 
 
 async def enqueue(

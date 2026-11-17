@@ -64,3 +64,40 @@ async def test_explicit_statement_cache_setting_is_respected(
     )
 
     assert captured["statement_cache_size"] == 64
+
+
+async def test_pool_bounds_statement_and_connect_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hung queries/connections must not block a worker indefinitely."""
+    captured: dict[str, Any] = {}
+
+    async def fake_create_pool(**kwargs: Any) -> _FakePool:
+        captured.update(kwargs)
+        return _FakePool()
+
+    monkeypatch.setattr(asyncpg, "create_pool", fake_create_pool)
+
+    await db.create_pool("postgresql://user:pass@db.example.com:5432/postgres")
+
+    assert captured["command_timeout"] == db.DEFAULT_COMMAND_TIMEOUT_S
+    assert captured["timeout"] == db.DEFAULT_CONNECT_TIMEOUT_S
+
+
+async def test_explicit_timeouts_are_respected(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_create_pool(**kwargs: Any) -> _FakePool:
+        captured.update(kwargs)
+        return _FakePool()
+
+    monkeypatch.setattr(asyncpg, "create_pool", fake_create_pool)
+
+    await db.create_pool(
+        "postgresql://user:pass@db.example.com:5432/postgres",
+        command_timeout=5.0,
+        timeout=2.0,
+    )
+
+    assert captured["command_timeout"] == 5.0
+    assert captured["timeout"] == 2.0

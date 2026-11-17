@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from arq.worker import Retry
@@ -218,3 +219,103 @@ async def test_run_generation_second_delivery_already_has_provider_id(
 
     assert job_dict["status"] == "running"
     assert job_dict["provider_job_id"] == "existing_provider_job_123"
+
+
+@pytest.mark.asyncio
+async def test_run_generation_persists_provider_job_id_before_transition(
+    test_config: WorkerConfig,
+) -> None:
+    """The provider id is written even if the status transition is lost."""
+    db = MockDB()
+    job_id = uuid.uuid4()
+    model_id = uuid.uuid4()
+
+    job_dict = make_job_row(job_id=job_id, model_id=model_id, status="queued")
+    db.add_job(job_dict)
+    db.add_model(make_model_row(model_id=model_id, provider_id="fake"))
+
+    pool = make_mock_pool(db.make_conn())
+    ctx = {"db_pool": pool, "redis_pool": None, "config": test_config}
+
+    await run_generation(ctx, job_id)
+
+    provider_updates = [
+        (query, params)
+        for query, params in db.executed
+        if "UPDATE public.generation_jobs" in query and "SET provider_job_id" in query
+    ]
+    assert len(provider_updates) == 1
+    assert provider_updates[0][1][1] == job_dict["provider_job_id"]
+
+
+@pytest.mark.asyncio
+async def test_run_generation_cancels_duplicate_when_webhook_won_race(
+    test_config: WorkerConfig,
+) -> None:
+    """If a webhook already advanced the job to another prediction, cancel ours."""
+    db = MockDB()
+    job_id = uuid.uuid4()
+    model_id = uuid.uuid4()
+
+    job_dict = make_job_row(job_id=job_id, model_id=model_id, status="queued")
+    db.add_job(job_dict)
+    db.add_model(make_model_row(model_id=model_id, provider_id="fake"))
+
+    conn = db.make_conn()
+    original_execute = conn.execute
+
+    async def execute_race(query: str, *params: object) -> str:
+        if "SET provider_job_id" in query:
+            # Simulate a webhook advancing the job with a different prediction
+            # before the worker's guarded transition runs.
+            job_dict["status"] = "running"
+            job_dict["provider_job_id"] = "webhook_prediction"
+            return "UPDATE 1"
+        return await original_execute(query, *params)
+
+    conn.execute = AsyncMock(side_effect=execute_race)
+    pool = make_mock_pool(conn)
+    ctx = {"db_pool": pool, "redis_pool": None, "config": test_config}
+
+    with patch("studio_providers.fake.FakeProvider.cancel", AsyncMock()) as mock_cancel:
+        await run_generation(ctx, job_id)
+
+    mock_cancel.assert_awaited_once()
+    ref = mock_cancel.await_args.args[0]
+    assert ref.provider_job_id != "webhook_prediction"
+    assert job_dict["provider_job_id"] == "webhook_prediction"
+
+
+@pytest.mark.asyncio
+async def test_run_generation_reclaims_job_reset_during_submit(
+    test_config: WorkerConfig,
+) -> None:
+    """If the reconciler reset the job mid-submit, reclaim it instead of orphaning."""
+    db = MockDB()
+    job_id = uuid.uuid4()
+    model_id = uuid.uuid4()
+
+    job_dict = make_job_row(job_id=job_id, model_id=model_id, status="queued")
+    db.add_job(job_dict)
+    db.add_model(make_model_row(model_id=model_id, provider_id="fake"))
+
+    conn = db.make_conn()
+    original_execute = conn.execute
+
+    async def execute_reset(query: str, *params: object) -> str:
+        if "SET provider_job_id" in query:
+            job_dict["status"] = "queued"
+            job_dict["provider_job_id"] = params[1]
+            return "UPDATE 1"
+        return await original_execute(query, *params)
+
+    conn.execute = AsyncMock(side_effect=execute_reset)
+    pool = make_mock_pool(conn)
+    ctx = {"db_pool": pool, "redis_pool": None, "config": test_config}
+
+    with patch("studio_providers.fake.FakeProvider.cancel", AsyncMock()) as mock_cancel:
+        await run_generation(ctx, job_id)
+
+    mock_cancel.assert_not_awaited()
+    assert job_dict["status"] == "running"
+    assert job_dict["provider_job_id"] is not None
