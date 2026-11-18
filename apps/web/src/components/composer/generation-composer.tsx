@@ -13,6 +13,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ComposerImagePicker } from "./composer-image-picker";
+import {
+  applyCameraLensToPrompt,
+  CAMERA_NONE,
+  CameraLensSelector,
+  LENS_NONE,
+} from "./camera-lens-selector";
 import { ModelPicker } from "./model-picker";
 import { SchemaParamsForm } from "./schema-params-form";
 import {
@@ -79,6 +85,8 @@ export function GenerationComposer({
   const [imageError, setImageError] = useState<string | undefined>();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastJob, setLastJob] = useState<GenerationJob | null>(null);
+  const [camera, setCamera] = useState(CAMERA_NONE);
+  const [lens, setLens] = useState(LENS_NONE);
 
   const inFlight = useRef(false);
   const idempotency = useRef<{ key: string; signature: string } | null>(null);
@@ -166,7 +174,7 @@ export function GenerationComposer({
     return {
       model: model.slug,
       task_type: taskType,
-      prompt: prompt.trim() ? prompt.trim() : null,
+      prompt: applyCameraLensToPrompt(prompt, camera, lens) || null,
       inputs,
       params: normalizeParamValues(model.input_schema, params),
     };
@@ -401,6 +409,26 @@ export function GenerationComposer({
                 : "Slow dolly-in over a misty forest, golden hour, gentle camera shake"
             }
             className="w-full px-3 py-2 rounded-xl bg-[#0F1117] border border-[#262A35] text-sm text-[#E8EAF0] placeholder:text-[#9AA1B2] focus:outline-none focus:ring-2 focus:ring-[#7C5CFF] resize-y"
+          />
+        </section>
+
+        {/* Camera & Lens */}
+        <section className={sectionClasses} aria-labelledby="composer-camera-lens-heading">
+          <div>
+            <h2 id="composer-camera-lens-heading" className="text-sm font-semibold text-[#E8EAF0]">
+              Camera & Lens
+            </h2>
+            <p className="text-xs text-[#9AA1B2] mt-0.5">
+              Add a camera body and lens look to the prompt before generating.
+            </p>
+          </div>
+          <CameraLensSelector
+            camera={camera}
+            lens={lens}
+            onChange={(nextCamera, nextLens) => {
+              setCamera(nextCamera);
+              setLens(nextLens);
+            }}
           />
         </section>
 
