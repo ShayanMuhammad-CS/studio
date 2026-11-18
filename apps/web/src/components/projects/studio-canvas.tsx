@@ -848,10 +848,11 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
         }}
       >
         {/* Camera & lens selector rail on the right side of the canvas. */}
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-30">
+        <div className="fixed right-4 top-1/2 -translate-y-1/2 z-30">
           <CameraLensSelector
             camera={camera}
             lens={lens}
+            hideSelectionWhenCollapsed
             onChange={(nextCamera, nextLens) => {
               setCamera(nextCamera);
               setLens(nextLens);

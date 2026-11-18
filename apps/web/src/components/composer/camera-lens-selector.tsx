@@ -17,7 +17,7 @@ interface CameraLensOption {
 
 /** Camera bodies. Defaults to None / auto. */
 export const CAMERA_OPTIONS: CameraLensOption[] = [
-  { key: "none", label: "None / auto", phrase: "", group: "Default" },
+  { key: "none", label: "Auto", phrase: "", group: "Default" },
   { key: "35mm-film", label: "35mm film", phrase: "shot on 35mm film", group: "Film" },
   { key: "8mm-film", label: "8mm film", phrase: "shot on 8mm film", group: "Film" },
   { key: "modern", label: "Modern digital", phrase: "shot on a modern digital cinema camera", group: "Digital" },
@@ -48,9 +48,9 @@ export const CAMERA_OPTIONS: CameraLensOption[] = [
   },
 ];
 
-/** Lenses. Defaults to None / auto. */
+/** Lenses. Defaults to Auto. */
 export const LENS_OPTIONS: CameraLensOption[] = [
-  { key: "none", label: "None / auto", phrase: "", group: "Default" },
+  { key: "none", label: "Auto", phrase: "", group: "Default" },
   { key: "warm-vintage", label: "Warm vintage", phrase: "warm vintage lens look", group: "Vintage" },
   {
     key: "halatian-vintage",
@@ -203,6 +203,8 @@ interface CameraLensSelectorProps {
   camera: string;
   lens: string;
   onChange: (camera: string, lens: string) => void;
+  /** Canvas view: hide the selected camera/lens label unless the trigger is hovered. */
+  hideSelectionWhenCollapsed?: boolean;
 }
 
 /**
@@ -218,8 +220,10 @@ export function CameraLensSelector({
   camera,
   lens,
   onChange,
+  hideSelectionWhenCollapsed = false,
 }: CameraLensSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [isTriggerHovered, setIsTriggerHovered] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -266,10 +270,14 @@ export function CameraLensSelector({
     };
   }, [open]);
 
-  const selectionLabel =
-    cameraOption.label !== "None / auto" || lensOption.label !== "None / auto"
-      ? `${cameraOption.label} • ${lensOption.label}`
-      : null;
+  const selectedLabels = [
+    camera !== CAMERA_NONE ? cameraOption.label : null,
+    lens !== LENS_NONE ? lensOption.label : null,
+  ].filter((label): label is string => Boolean(label));
+  const selectionLabel = selectedLabels.length ? selectedLabels.join(" • ") : null;
+
+  const showSelectionLabel =
+    !hideSelectionWhenCollapsed || isTriggerHovered || open;
 
   return (
     <div ref={containerRef} className="relative">
@@ -282,23 +290,29 @@ export function CameraLensSelector({
         aria-label={
           selectionLabel
             ? `Camera & lens: ${selectionLabel}`
-            : "Camera & lens (None / auto)"
+            : "Camera & lens (Auto)"
         }
         onClick={openPanel}
+        onMouseEnter={() => setIsTriggerHovered(true)}
+        onMouseLeave={() => setIsTriggerHovered(false)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             openPanel();
           }
         }}
-        className={triggerClasses}
+        className={`${triggerClasses} group`}
         title="Choose camera body and lens look"
       >
-        <Camera className="h-4 w-4 shrink-0 text-[#A995FF]" />
+        <Camera
+          className={`h-4 w-4 shrink-0 transition-colors ${
+            selectionLabel ? "text-[#A995FF]" : "text-[#E8EAF0]"
+          }`}
+        />
         <span className="text-xs font-medium text-[#E8EAF0]">
           Camera & Lens
         </span>
-        {selectionLabel && (
+        {selectionLabel && showSelectionLabel && (
           <span
             className="flex h-5 min-w-[5.5rem] items-center justify-center rounded-full border border-[#7C5CFF]/40 bg-[#6C4CE8]/20 px-2 text-[10px] font-semibold text-[#E8EAF0]"
           >
