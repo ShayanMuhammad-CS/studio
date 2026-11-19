@@ -126,15 +126,21 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
     onClose();
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!asset?.signed_url) return;
+
+    const response = await fetch(asset.signed_url);
+    const img_blog = await response.blob();
+    const publicUrl = window.URL.createObjectURL(img_blob);
+
     const a = document.createElement("a");
-    a.href = asset.signed_url;
+    a.href = publicUrl;
     a.download = asset.metadata?.filename || `${asset.kind}-${asset.id.slice(0, 8)}`;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
+    // a.target = "_blank";
+    // a.rel = "noopener noreferrer";
     document.body.appendChild(a);
     a.click();
+    window.URL.revokeObjectURL(publicUrl);
     document.body.removeChild(a);
   };
 
