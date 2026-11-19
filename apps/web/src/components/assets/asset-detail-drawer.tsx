@@ -140,6 +140,7 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(publicUrl);
+    document.body.removeChild(a);
   };
 
   const handleCopyPrompt = async () => {
