@@ -130,7 +130,7 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
     if (!asset?.signed_url) return;
 
     const response = await fetch(asset.signed_url);
-    const img_blog = await response.blob();
+    const img_blob = await response.blob();
     const publicUrl = window.URL.createObjectURL(img_blob);
 
     const a = document.createElement("a");
