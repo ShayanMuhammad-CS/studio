@@ -136,12 +136,10 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
     const a = document.createElement("a");
     a.href = publicUrl;
     a.download = asset.metadata?.filename || `${asset.kind}-${asset.id.slice(0, 8)}`;
-    // a.target = "_blank";
-    // a.rel = "noopener noreferrer";
+
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(publicUrl);
-    document.body.removeChild(a);
   };
 
   const handleCopyPrompt = async () => {
