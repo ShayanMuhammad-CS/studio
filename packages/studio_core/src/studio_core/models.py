@@ -120,6 +120,9 @@ class Asset(BaseDomainModel):
     project_id: UUID
     kind: AssetKind
     origin: AssetOrigin
+    # User-facing display name, e.g. ``img_1``, ``vid_3``. Distinct within a
+    # project + kind; editable from the asset viewer.
+    name: str | None = None
     storage_bucket: str = "media"
     storage_path: str
     thumbnail_path: str | None = None

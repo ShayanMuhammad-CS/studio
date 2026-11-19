@@ -23,6 +23,7 @@ from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import asyncpg
+from asyncpg.exceptions import UniqueViolationError
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -97,6 +98,7 @@ class AssetResponse(BaseModel):
     project_id: UUID
     kind: str
     origin: str
+    name: str | None = None
     mime_type: str | None
     size_bytes: int | None
     width: int | None
@@ -134,10 +136,17 @@ class AssetListResponse(BaseModel):
     next_cursor: str | None
 
 
+class AssetRenameRequest(BaseModel):
+    """New display name for an asset."""
+
+    name: str
+
+
 # ── Supabase storage helpers ───────────────────────────────────────────────────
 
 
 _SAFE_EXTENSION = re.compile(r"^[a-z0-9]{1,10}$")
+_SAFE_ASSET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,99}$")
 
 
 def _safe_storage_filename(filename: str, mime_type: str) -> str:
@@ -211,6 +220,7 @@ def _asset_response(asset: Asset) -> AssetResponse:
         project_id=asset.project_id,
         kind=asset.kind,
         origin=asset.origin,
+        name=asset.name,
         mime_type=asset.mime_type,
         size_bytes=asset.size_bytes,
         width=asset.width,
@@ -481,14 +491,19 @@ async def request_upload(
     storage_filename = _safe_storage_filename(body.filename, body.mime_type)
     storage_path = f"{workspace_id}/{project_id}/{asset_id}/{storage_filename}"
 
-    # Create draft asset (metadata.status = 'pending')
+    # Distinct, unified display name (e.g. img_1, vid_3); the original file
+    # name is still preserved in metadata.filename.
     repo = AssetRepository(db)
+    name = await repo.next_asset_name(project_id, kind)
+
+    # Create draft asset (metadata.status = 'pending')
     created_asset = await repo.create(
         workspace_id=workspace_id,
         project_id=project_id,
         kind=kind,
         origin=AssetOrigin.UPLOAD,
         storage_path=storage_path,
+        name=name,
         storage_bucket=settings.storage_bucket,
         mime_type=body.mime_type,
         size_bytes=body.size_bytes,
@@ -651,7 +666,7 @@ async def list_assets(
     params.append(limit + 1)
     where_sql = " AND ".join(clauses)
     query = f"""
-        SELECT id, workspace_id, project_id, kind, origin, storage_bucket,
+        SELECT id, workspace_id, project_id, kind, origin, name, storage_bucket,
                storage_path, thumbnail_path, mime_type, size_bytes, width,
                height, duration_ms, fps, source_job_id, parent_asset_id,
                metadata, created_by, created_at, deleted_at
@@ -693,3 +708,54 @@ async def delete_asset(asset_id: UUID, user: AuthUser, db: DBConn) -> None:
         "UPDATE public.assets SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL",
         asset_id,
     )
+
+
+@router.patch(
+    "/assets/{asset_id}",
+    response_model=AssetResponse,
+    summary="Rename an asset",
+)
+async def rename_asset(
+    asset_id: UUID,
+    body: AssetRenameRequest,
+    user: AuthUser,
+    db: DBConn,
+) -> AssetResponse:
+    """Rename an asset.
+
+    Names are distinct within a project and kind (``img_1``, ``vid_3``,
+    ...). Editors of the workspace can rename any asset; viewers cannot.
+    """
+    repo = AssetRepository(db)
+    asset = await repo.get_by_id(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    project_repo = ProjectRepository(db)
+    role = await project_repo.get_member_role(asset.workspace_id, user.id)
+    if role is None or role == WorkspaceRole.VIEWER:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    new_name = body.name.strip()
+    if not _SAFE_ASSET_NAME.fullmatch(new_name):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Name must start with a letter or digit and contain only "
+                "letters, digits, spaces, underscores, hyphens, and dots"
+            ),
+        )
+
+    try:
+        await repo.update_name(asset_id, new_name)
+    except UniqueViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"An asset named '{new_name}' already exists in this project",
+        )
+
+    updated = await repo.get_by_id(asset_id)
+    assert updated is not None
+    response = _asset_response(updated)
+    response.lineage = await _build_lineage(db, updated)
+    return response

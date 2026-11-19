@@ -110,7 +110,14 @@ export interface paths {
         delete: operations["delete_asset_v1_assets__asset_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename an asset
+         * @description Rename an asset.
+         *
+         *     Names are distinct within a project and kind (``img_1``, ``vid_3``,
+         *     ...). Editors of the workspace can rename any asset; viewers cannot.
+         */
+        patch: operations["rename_asset_v1_assets__asset_id__patch"];
         trace?: never;
     };
     "/v1/assets/{asset_id}/complete": {
@@ -474,6 +481,14 @@ export interface components {
             next_cursor: string | null;
         };
         /**
+         * AssetRenameRequest
+         * @description New display name for an asset.
+         */
+        AssetRenameRequest: {
+            /** Name */
+            name: string;
+        };
+        /**
          * AssetResponse
          * @description Asset representation with signed download URL.
          */
@@ -503,6 +518,8 @@ export interface components {
             };
             /** Mime Type */
             mime_type: string | null;
+            /** Name */
+            name?: string | null;
             /** Origin */
             origin: string;
             /** Parent Asset Id */
@@ -1146,6 +1163,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_asset_v1_assets__asset_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssetRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

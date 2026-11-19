@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   X,
   Download,
@@ -14,13 +15,21 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Edit,
   ArrowDownLeft,
   Cpu,
   SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
-import { type Asset, type LineageAssetRef, useAsset, useDeleteAsset } from "@/hooks/use-assets";
+import {
+  type Asset,
+  type LineageAssetRef,
+  assetDisplayName,
+  useAsset,
+  useDeleteAsset,
+} from "@/hooks/use-assets";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { getApiClient } from "@/lib/api";
 
 interface AssetDetailDrawerProps {
   assetId: string | null;
@@ -85,8 +94,12 @@ function LineageAssetTile({ asset, label }: { asset: LineageAssetRef; label: str
 export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDrawerProps) {
   const { data: asset, isLoading, isError, refetch } = useAsset(assetId);
   const deleteMutation = useDeleteAsset(projectId);
+  const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameError, setRenameError] = useState("");
   const refreshedMedia = useRef(false);
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -94,8 +107,40 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
     // Reset per-asset state when a different asset is opened.
     setShowDeleteConfirm(false);
     setCopied(false);
+    setIsRenaming(false);
+    setRenameError("");
     refreshedMedia.current = false;
   }, [assetId]);
+
+  const handleRename = async (nextName: string) => {
+    if (!asset) return;
+    const trimmed = nextName.trim();
+    if (!trimmed || trimmed === (asset.name ?? "")) {
+      setIsRenaming(false);
+      setRenameError("");
+      return;
+    }
+    setRenameError("");
+    try {
+      const client = getApiClient();
+      const res = await client.PATCH("/v1/assets/{asset_id}", {
+        params: { path: { asset_id: asset.id } },
+        body: { name: trimmed },
+      });
+      if (res.error) {
+        throw new Error((res.error as any)?.detail || "Failed to rename asset");
+      }
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ["assets", projectId] });
+      toast.success("Asset renamed");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to rename asset";
+      setRenameError(message);
+      toast.error(message);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
 
   useFocusTrap(drawerRef, Boolean(assetId), { onEscape: onClose });
 
@@ -135,7 +180,12 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
 
     const a = document.createElement("a");
     a.href = publicUrl;
-    a.download = asset.metadata?.filename || `${asset.kind}-${asset.id.slice(0, 8)}`;
+    const downloadBase = assetDisplayName(asset);
+    const ext = asset.storage_path?.split(".").pop() ?? "";
+    a.download =
+      ext && !downloadBase.toLowerCase().endsWith(`.${ext.toLowerCase()}`)
+        ? `${downloadBase}.${ext}`
+        : downloadBase;
 
     document.body.appendChild(a);
     a.click();
@@ -179,12 +229,48 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
             <span className="px-2.5 py-0.5 rounded-full bg-[#1B1E26] border border-[#262A35] text-xs font-mono capitalize text-[#A995FF] shrink-0">
               {asset?.kind || "Asset"}
             </span>
-            <h3
-              id="asset-drawer-title"
-              className="text-sm font-semibold text-[#E8EAF0] truncate max-w-[280px]"
-            >
-              {asset?.metadata?.filename || (asset ? `Asset ${asset.id.slice(0, 8)}` : "Details")}
-            </h3>
+            <div className="flex items-center gap-2 min-w-0">
+              {isRenaming && asset ? (
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleRename(renameDraft);
+                    if (e.key === "Escape") {
+                      setIsRenaming(false);
+                      setRenameError("");
+                    }
+                  }}
+                  onBlur={() => void handleRename(renameDraft)}
+                  className="text-sm font-semibold text-[#E8EAF0] bg-transparent border-none focus:ring-0 w-full min-w-[120px] truncate"
+                />
+              ) : (
+                <h3
+                  id="asset-drawer-title"
+                  className="text-sm font-semibold text-[#E8EAF0] truncate max-w-[280px]"
+                >
+                  {asset ? assetDisplayName(asset) : "Details"}
+                </h3>
+              )}
+              {asset && !isRenaming && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameDraft(asset.name ?? "");
+                    setIsRenaming(true);
+                  }}
+                  aria-label="Rename asset"
+                  className="p-1.5 rounded-lg text-[#9AA1B2] hover:text-[#E8EAF0] hover:bg-[#1B1E26] transition-colors shrink-0"
+                >
+                  <Edit className="w-4 h-4" />
+                  <span className="sr-only">Rename asset</span>
+                </button>
+              )}
+              {renameError && (
+                <p className="text-[10px] text-red-400 font-mono">{renameError}</p>
+              )}
+            </div>
           </div>
           <button
             type="button"
@@ -232,7 +318,7 @@ export function AssetDetailDrawer({ assetId, projectId, onClose }: AssetDetailDr
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={displaySrc}
-                    alt={asset.metadata?.filename || "Asset preview"}
+                    alt={assetDisplayName(asset)}
                     onError={handleMediaError}
                     className="w-full max-h-[360px] object-contain"
                   />

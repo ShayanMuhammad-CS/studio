@@ -68,6 +68,7 @@ export function outputToAsset(jobId: string, output: GenerationOutput): Asset {
     signed_url: output.signed_url,
     source_job_id: jobId,
     parent_asset_id: null,
+    name: null,
     metadata: {
       filename: `generated-${output.asset_id.slice(0, 8)}.${extension}`,
     },

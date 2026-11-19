@@ -239,8 +239,12 @@ async def finalize_generation(ctx: dict[str, Any], job_id_raw: str | UUID) -> No
                 is_video = (out.kind == AssetKind.VIDEO) or (
                     out.mime_type and "video" in out.mime_type
                 )
+                out_kind = AssetKind.VIDEO if is_video else AssetKind.IMAGE
                 ext = "mp4" if is_video else "png"
                 local_file = tmp_dir / f"original_{idx}.{ext}"
+
+                # Distinct, unified display name (img_1, vid_3, ...).
+                name = await asset_repo.next_asset_name(job.project_id, out_kind)
                 local_file.write_bytes(data)
 
                 # Probe metadata and validate
@@ -322,13 +326,13 @@ async def finalize_generation(ctx: dict[str, Any], job_id_raw: str | UUID) -> No
                 await conn.execute(
                     """
                     INSERT INTO public.assets (
-                        id, workspace_id, project_id, kind, origin, storage_bucket,
-                        storage_path, thumbnail_path, mime_type, size_bytes, width,
-                        height, duration_ms, fps, source_job_id, metadata, created_by
+                        id, workspace_id, project_id, kind, origin, name,
+                        storage_bucket, storage_path, thumbnail_path, mime_type, size_bytes,
+                        width, height, duration_ms, fps, source_job_id, metadata, created_by
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6,
                         $7, $8, $9, $10, $11,
-                        $12, $13, $14, $15, $16, $17
+                        $12, $13, $14, $15, $16, $17, $18
                     )
                     ON CONFLICT (id) DO NOTHING
                     """,
@@ -337,6 +341,7 @@ async def finalize_generation(ctx: dict[str, Any], job_id_raw: str | UUID) -> No
                     job.project_id,
                     AssetKind.VIDEO.value if is_video else AssetKind.IMAGE.value,
                     AssetOrigin.GENERATED.value,
+                    name,
                     config.storage_bucket,
                     orig_storage_path,
                     thumb_path,
