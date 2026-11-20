@@ -32,6 +32,7 @@ import {
 import { ModelPicker } from "@/components/composer/model-picker";
 import { SchemaParamsForm } from "@/components/composer/schema-params-form";
 import {
+  assetDisplayName,
   uploadAssetWithProgress,
   useAssets,
   type Asset,
@@ -92,10 +93,7 @@ function taskTypeFor(mode: ComposerMode, hasInputs: boolean): TaskType {
 }
 
 function assetName(asset: Asset): string {
-  const filename = asset.metadata?.filename;
-  if (typeof filename === "string" && filename.trim()) return filename;
-  const path = asset.storage_path ?? "";
-  return path.split("/").pop() || `${asset.kind}-${asset.id.slice(0, 8)}`;
+  return assetDisplayName(asset);
 }
 
 function assetToPin(asset: Asset): CanvasPin {

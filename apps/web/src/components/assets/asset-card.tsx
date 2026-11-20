@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { type Asset } from "@/hooks/use-assets";
+import { type Asset, assetDisplayName } from "@/hooks/use-assets";
 import { Image as ImageIcon, Video, Film, Eye } from "lucide-react";
 
 interface AssetCardProps {
@@ -96,7 +96,7 @@ export function AssetCard({ asset, onClick, onMediaError }: AssetCardProps) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={displaySrc}
-            alt={asset.metadata?.filename || "Asset image"}
+            alt={assetDisplayName(asset)}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
             onError={handleMediaError}
@@ -129,7 +129,7 @@ export function AssetCard({ asset, onClick, onMediaError }: AssetCardProps) {
       {/* Info bar */}
       <div className="p-3 bg-[#14161C] flex items-center justify-between text-xs border-t border-[#262A35]">
         <div className="truncate max-w-[140px] text-[#E8EAF0] font-medium">
-          {asset.metadata?.filename || `${asset.kind}-${asset.id.slice(0, 8)}`}
+          {assetDisplayName(asset)}
         </div>
         <div className="text-[11px] font-mono text-[#9AA1B2]">
           {asset.width && asset.height

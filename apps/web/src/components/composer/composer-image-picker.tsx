@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Check, Image as ImageIcon, Loader2, UploadCloud, X } from "lucide-react";
-import { useAssets, type Asset } from "@/hooks/use-assets";
+import { useAssets, type Asset, assetDisplayName } from "@/hooks/use-assets";
 import { AssetUploadZone } from "@/components/assets/asset-upload-zone";
 
 interface ComposerImagePickerProps {
@@ -20,10 +20,7 @@ interface ComposerImagePickerProps {
 
 /** Best-effort display name for an asset. */
 export function assetFilename(asset: Asset): string {
-  const filename = asset.metadata?.filename;
-  if (typeof filename === "string" && filename.trim()) return filename;
-  const path = asset.storage_path ?? "";
-  return path.split("/").pop() || "asset";
+  return assetDisplayName(asset);
 }
 
 /**

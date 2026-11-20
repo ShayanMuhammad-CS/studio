@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
+from asyncpg.exceptions import UniqueViolationError
 import jwt
 import pytest
 from fastapi import FastAPI
@@ -51,6 +52,7 @@ def _asset_row(
     project_id: UUID | None = None,
     kind: str = "image",
     origin: str = "upload",
+    name: str | None = None,
     mime_type: str = "image/png",
 ) -> dict[str, Any]:
     now = datetime.now(UTC)
@@ -60,6 +62,7 @@ def _asset_row(
         "project_id": project_id or uuid.uuid4(),
         "kind": kind,
         "origin": origin,
+        "name": name,
         "storage_bucket": "media",
         "storage_path": "ws/proj/asset/file.png",
         "thumbnail_path": None,
@@ -101,7 +104,13 @@ async def test_request_upload_returns_201_and_url() -> None:
         return None
 
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    conn.fetchval = AsyncMock(return_value="editor")
+
+    async def fetchval_side_effect(query: str, *args: Any) -> Any:
+        if "count(*)" in query:
+            return 0
+        return "editor"
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     app = _make_app(conn)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -192,7 +201,13 @@ async def test_request_upload_uses_url_safe_storage_name() -> None:
         return None
 
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    conn.fetchval = AsyncMock(return_value="editor")
+
+    async def fetchval_side_effect(query: str, *args: Any) -> Any:
+        if "count(*)" in query:
+            return 0
+        return "editor"
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     app = _make_app(conn)
 
     nasty_name = "vlc-record Converting file (2021) [720p] %20 weird.mp4"
@@ -219,8 +234,158 @@ async def test_request_upload_uses_url_safe_storage_name() -> None:
         call for call in conn.fetchrow.call_args_list if "INSERT INTO public.assets" in call.args[0]
     ]
     assert len(insert_calls) == 1
-    metadata = json.loads(insert_calls[0].args[16])
+    insert_args = insert_calls[0].args
+    # name is the 5th bind parameter ($6) of the INSERT; uploads are not
+    # auto-named, so it is None until the user renames.
+    assert insert_args[5] is None
+    metadata = json.loads(insert_args[17])
     assert metadata["filename"] == nasty_name
+
+
+@pytest.mark.asyncio
+async def test_request_upload_keeps_default_name_until_renamed() -> None:
+    """New uploads are not auto-named; they keep their original filename as the
+    default display name until the user renames them."""
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    proj_id = uuid.uuid4()
+
+    conn = _mock_conn()
+
+    async def fetchrow_side_effect(query: str, *args: Any) -> dict[str, Any] | None:
+        if "projects" in query and "archived_at IS NULL" in query:
+            return {"workspace_id": ws_id}
+        if "INSERT INTO public.assets" in query:
+            return _asset_row(workspace_id=ws_id, project_id=proj_id, name=None)
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    conn.fetchval = AsyncMock(return_value="editor")
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            f"/v1/projects/{proj_id}/assets/uploads",
+            json={"mime_type": "image/png", "size_bytes": 1024, "filename": "photo.png"},
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+    assert resp.status_code == 201
+    insert_call = [
+        call for call in conn.fetchrow.call_args_list if "INSERT INTO public.assets" in call.args[0]
+    ][0]
+    assert insert_call.args[5] is None
+
+
+@pytest.mark.asyncio
+async def test_get_asset_includes_name() -> None:
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    asset = _asset_row(workspace_id=ws_id, name="vid_3", kind="video")
+
+    conn = _mock_conn()
+    conn.fetchrow = AsyncMock(return_value=asset)
+    conn.fetchval = AsyncMock(return_value="viewer")
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(
+            f"/v1/assets/{asset['id']}",
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "vid_3"
+
+
+@pytest.mark.asyncio
+async def test_rename_asset_happy_path() -> None:
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    asset = _asset_row(workspace_id=ws_id, name="img_1", origin="generated")
+
+    conn = _mock_conn()
+
+    async def fetchrow_side_effect(query: str, *args: Any) -> dict[str, Any] | None:
+        if "public.assets" in query:
+            return asset
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+
+    async def fetchval_side_effect(query: str, *args: Any) -> Any:
+        return "editor"
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+
+    async def execute_side_effect(query: str, *args: Any) -> None:
+        if "SET name = $2" in query:
+            asset["name"] = args[1]
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.patch(
+            f"/v1/assets/{asset['id']}",
+            json={"name": "sunset_photo"},
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "sunset_photo"
+
+    update_calls = [c for c in conn.execute.call_args_list if "SET name = $2" in c.args[0]]
+    assert len(update_calls) == 1
+    assert update_calls[0].args[1] == asset["id"]
+    assert update_calls[0].args[2] == "sunset_photo"
+
+
+@pytest.mark.asyncio
+async def test_rename_asset_rejects_duplicate_name() -> None:
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    asset = _asset_row(workspace_id=ws_id, name="img_1")
+
+    conn = _mock_conn()
+    conn.fetchrow = AsyncMock(return_value=asset)
+    conn.fetchval = AsyncMock(return_value="editor")
+    conn.execute = AsyncMock(side_effect=UniqueViolationError("duplicate"))
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.patch(
+            f"/v1/assets/{asset['id']}",
+            json={"name": "img_1"},
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_rename_asset_rejects_viewer_and_bad_names() -> None:
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    asset = _asset_row(workspace_id=ws_id, name="img_1")
+
+    conn = _mock_conn()
+    conn.fetchrow = AsyncMock(return_value=asset)
+    conn.fetchval = AsyncMock(return_value="viewer")
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.patch(
+            f"/v1/assets/{asset['id']}",
+            json={"name": "new_name"},
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+        assert resp.status_code == 403
+
+        conn.fetchval = AsyncMock(return_value="editor")
+        resp = await client.patch(
+            f"/v1/assets/{asset['id']}",
+            json={"name": "bad name!"},
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+        assert resp.status_code == 400
 
 
 @pytest.mark.asyncio

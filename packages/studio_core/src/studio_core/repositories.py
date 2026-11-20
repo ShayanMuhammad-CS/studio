@@ -181,7 +181,7 @@ class AssetRepository:
 
     async def get_by_id(self, asset_id: UUID) -> Asset | None:
         query = """
-            SELECT id, workspace_id, project_id, kind, origin, storage_bucket,
+            SELECT id, workspace_id, project_id, kind, origin, name, storage_bucket,
                    storage_path, thumbnail_path, mime_type, size_bytes, width,
                    height, duration_ms, fps, source_job_id, parent_asset_id,
                    metadata, created_by, created_at, deleted_at
@@ -200,7 +200,7 @@ class AssetRepository:
         if not asset_ids:
             return []
         query = """
-            SELECT id, workspace_id, project_id, kind, origin, storage_bucket,
+            SELECT id, workspace_id, project_id, kind, origin, name, storage_bucket,
                    storage_path, thumbnail_path, mime_type, size_bytes, width,
                    height, duration_ms, fps, source_job_id, parent_asset_id,
                    metadata, created_by, created_at, deleted_at
@@ -223,6 +223,7 @@ class AssetRepository:
         kind: AssetKind,
         origin: AssetOrigin,
         storage_path: str,
+        name: str | None = None,
         storage_bucket: str = "media",
         thumbnail_path: str | None = None,
         mime_type: str | None = None,
@@ -238,20 +239,21 @@ class AssetRepository:
     ) -> Asset:
         query = """
             INSERT INTO public.assets (
-                workspace_id, project_id, kind, origin, storage_bucket,
+                workspace_id, project_id, kind, origin, name, storage_bucket,
                 storage_path, thumbnail_path, mime_type, size_bytes, width,
                 height, duration_ms, fps, source_job_id, parent_asset_id,
                 metadata, created_by
             ) VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15,
-                $16, $17
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11,
+                $12, $13, $14, $15, $16,
+                $17, $18
             )
-            RETURNING id, workspace_id, project_id, kind, origin, storage_bucket,
-                      storage_path, thumbnail_path, mime_type, size_bytes, width,
-                      height, duration_ms, fps, source_job_id, parent_asset_id,
-                      metadata, created_by, created_at, deleted_at
+            RETURNING id, workspace_id, project_id, kind, origin, name,
+                      storage_bucket, storage_path, thumbnail_path, mime_type,
+                      size_bytes, width, height, duration_ms, fps,
+                      source_job_id, parent_asset_id, metadata, created_by,
+                      created_at, deleted_at
         """
         row = await self.conn.fetchrow(
             query,
@@ -259,6 +261,7 @@ class AssetRepository:
             project_id,
             kind.value,
             origin.value,
+            name,
             storage_bucket,
             storage_path,
             thumbnail_path,
@@ -278,6 +281,42 @@ class AssetRepository:
         if isinstance(data["metadata"], str):
             data["metadata"] = json.loads(data["metadata"])
         return Asset.model_validate(data)
+
+    _KIND_NAME_PREFIX = {
+        AssetKind.IMAGE: "img",
+        AssetKind.VIDEO: "vid",
+    }
+
+    async def next_asset_name(self, project_id: UUID, kind: AssetKind) -> str:
+        """Return the next distinct display name for an asset in a project.
+
+        Names are kind-prefixed per-project sequences: ``img_1``, ``img_2``,
+        ``vid_1`` ... (``asset_1`` for other kinds). Callers should still be
+        prepared to handle a unique violation on ``name`` under concurrent
+        creation.
+        """
+        prefix = self._KIND_NAME_PREFIX.get(kind, "asset")
+        count = await self.conn.fetchval(
+            """
+            SELECT count(*) FROM public.assets
+            WHERE project_id = $1 AND kind = $2 AND deleted_at IS NULL
+            """,
+            project_id,
+            kind.value,
+        )
+        return f"{prefix}_{int(count) + 1}"
+
+    async def update_name(self, asset_id: UUID, name: str) -> None:
+        """Rename an asset. Raises asyncpg UniqueViolationError on clash."""
+        await self.conn.execute(
+            """
+            UPDATE public.assets
+            SET name = $2
+            WHERE id = $1 AND deleted_at IS NULL
+            """,
+            asset_id,
+            name,
+        )
 
 
 class JobRepository:

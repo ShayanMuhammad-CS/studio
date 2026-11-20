@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -56,6 +56,20 @@ const server = setupServer(
     });
   }),
 
+  http.patch(`${BASE_URL}/v1/assets/:asset_id`, async ({ params, request }) => {
+    const { asset_id } = params;
+    const asset = mockAssets.find((a) => a.id === asset_id);
+    if (!asset) {
+      return new HttpResponse(JSON.stringify({ detail: "Asset not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const { name } = (await request.json()) as { name: string };
+    mockAssets = mockAssets.map((a) => (a.id === asset_id ? { ...a, name } : a));
+    return HttpResponse.json(mockAssets.find((a) => a.id === asset_id));
+  }),
+
   http.delete(`${BASE_URL}/v1/assets/:asset_id`, ({ params }) => {
     const { asset_id } = params;
     mockAssets = mockAssets.filter((a) => a.id !== asset_id);
@@ -87,6 +101,7 @@ const server = setupServer(
       project_id: mockProjectId,
       kind: "image",
       origin: "upload",
+      name: "img_1",
       mime_type: "image/png",
       size_bytes: 1024,
       width: 512,
@@ -130,6 +145,7 @@ beforeEach(() => {
       signed_url: "https://storage.example.com/cyberpunk_neon.png",
       source_job_id: "job-888",
       parent_asset_id: "asset-parent-1",
+      name: "img_1",
       metadata: {
         filename: "cyberpunk_neon.png",
         prompt: "Neon cyber city rain 4k octane render",
@@ -184,6 +200,7 @@ beforeEach(() => {
       signed_url: "https://storage.example.com/drone_shot.mp4",
       source_job_id: null,
       parent_asset_id: null,
+      name: "vid_1",
       metadata: {
         filename: "drone_shot.mp4",
       },
@@ -251,26 +268,20 @@ describe("AssetLibrary & Upload Components", () => {
   it("renders asset items from MSW", async () => {
     renderAssetLibrary();
 
-    expect(
-      await screen.findByText("cyberpunk_neon.png", {}, { timeout: 4000 })
-    ).toBeInTheDocument();
-    expect(screen.getByText("drone_shot.mp4")).toBeInTheDocument();
+    expect(await screen.findByText("img_1", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText("vid_1")).toBeInTheDocument();
   });
 
   it("filters assets by kind (images vs videos)", async () => {
     renderAssetLibrary();
 
-    expect(
-      await screen.findByText("cyberpunk_neon.png", {}, { timeout: 4000 })
-    ).toBeInTheDocument();
+    expect(await screen.findByText("img_1", {}, { timeout: 4000 })).toBeInTheDocument();
 
     const videoFilterBtn = screen.getByRole("button", { name: /videos/i });
     fireEvent.click(videoFilterBtn);
 
-    expect(
-      await screen.findByText("drone_shot.mp4", {}, { timeout: 4000 })
-    ).toBeInTheDocument();
-    expect(screen.queryByText("cyberpunk_neon.png")).not.toBeInTheDocument();
+    expect(await screen.findByText("vid_1", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText("img_1")).not.toBeInTheDocument();
   });
 
   it("loads the next cursor page when more assets exist", async () => {
@@ -294,6 +305,7 @@ describe("AssetLibrary & Upload Components", () => {
         signed_url: "https://storage.example.com/third.png",
         source_job_id: null,
         parent_asset_id: null,
+        name: "img_2",
         metadata: { filename: "third_page_asset.png" },
         created_at: new Date().toISOString(),
       },
@@ -302,28 +314,32 @@ describe("AssetLibrary & Upload Components", () => {
     renderAssetLibrary();
 
     expect(
-      await screen.findByText("cyberpunk_neon.png", {}, { timeout: 4000 })
+      await screen.findByText("img_1", {}, { timeout: 4000 })
     ).toBeInTheDocument();
-    expect(screen.queryByText("third_page_asset.png")).not.toBeInTheDocument();
+    expect(screen.queryByText("img_2")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /load more assets/i }));
 
     expect(
-      await screen.findByText("third_page_asset.png", {}, { timeout: 4000 })
+      await screen.findByText("img_2", {}, { timeout: 4000 })
     ).toBeInTheDocument();
   });
 
   it("opens asset detail drawer on click and renders metadata and lineage", async () => {
     renderAssetLibrary();
 
-    const assetItem = await screen.findByText("cyberpunk_neon.png", {}, { timeout: 4000 });
+    const assetItem = await screen.findByText("img_1", {}, { timeout: 4000 });
     fireEvent.click(assetItem);
 
-    // Detail drawer opens
-    expect(await screen.findByRole("dialog", {}, { timeout: 4000 })).toBeInTheDocument();
-    expect(await screen.findByText(/1024/)).toBeInTheDocument();
-    expect(screen.getByText(/SDXL Turbo/i)).toBeInTheDocument();
-    expect(screen.getByText(/Neon cyber city rain 4k/i)).toBeInTheDocument();
+    // Detail drawer opens and shows the asset name
+    const dialog = await screen.findByRole("dialog", {}, { timeout: 4000 });
+    expect(dialog).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(dialog).getByText("img_1")).toBeInTheDocument();
+    });
+    expect(within(dialog).getByText(/1024/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/SDXL Turbo/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Neon cyber city rain 4k/i)).toBeInTheDocument();
 
     // Lineage: job, params, inputs and parent asset
     expect(screen.getByText(/image to video · succeeded/i)).toBeInTheDocument();
@@ -333,10 +349,33 @@ describe("AssetLibrary & Upload Components", () => {
     expect(screen.getByText(/derived from/i)).toBeInTheDocument();
   });
 
+  it("renames the asset from the detail drawer", async () => {
+    renderAssetLibrary();
+
+    const assetItem = await screen.findByText("img_1", {}, { timeout: 4000 });
+    fireEvent.click(assetItem);
+
+    const dialog = await screen.findByRole("dialog", {}, { timeout: 4000 });
+    await waitFor(() => {
+      expect(within(dialog).getByText("img_1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /rename asset/i }));
+
+    const input = within(dialog).getByRole("textbox");
+    fireEvent.change(input, { target: { value: "sunset photo" } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("sunset photo")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
   it("deletes asset from drawer with confirmation", async () => {
     renderAssetLibrary();
 
-    const assetItem = await screen.findByText("cyberpunk_neon.png", {}, { timeout: 4000 });
+    const assetItem = await screen.findByText("img_1", {}, { timeout: 4000 });
     fireEvent.click(assetItem);
 
     const deleteBtn = await screen.findByRole("button", { name: /^delete$/i });
@@ -348,17 +387,17 @@ describe("AssetLibrary & Upload Components", () => {
 
     // Should remove from grid
     await waitFor(() => {
-      expect(screen.queryByText("cyberpunk_neon.png")).not.toBeInTheDocument();
+      expect(screen.queryByText("img_1")).not.toBeInTheDocument();
     });
   });
 
   it("refetches the asset when its signed media URL fails to load", async () => {
     renderAssetLibrary();
 
-    await screen.findByText("cyberpunk_neon.png", {}, { timeout: 4000 });
+    await screen.findByText("img_1", {}, { timeout: 4000 });
     const requestsBefore = listRequestCount;
 
-    const image = screen.getByAltText("cyberpunk_neon.png");
+    const image = screen.getByAltText("img_1");
     fireEvent.error(image);
 
     await waitFor(() => {

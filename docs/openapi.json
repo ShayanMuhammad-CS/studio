@@ -63,6 +63,20 @@
         "title": "AssetListResponse",
         "type": "object"
       },
+      "AssetRenameRequest": {
+        "description": "New display name for an asset.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AssetRenameRequest",
+        "type": "object"
+      },
       "AssetResponse": {
         "description": "Asset representation with signed download URL.",
         "properties": {
@@ -138,6 +152,17 @@
               }
             ],
             "title": "Mime Type"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "origin": {
             "title": "Origin",
@@ -1622,6 +1647,63 @@
           }
         ],
         "summary": "Get Asset",
+        "tags": [
+          "assets"
+        ]
+      },
+      "patch": {
+        "description": "Rename an asset.\n\nNames are distinct within a project and kind (``img_1``, ``vid_3``,\n...). Editors of the workspace can rename any asset; viewers cannot.",
+        "operationId": "rename_asset_v1_assets__asset_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rename an asset",
         "tags": [
           "assets"
         ]

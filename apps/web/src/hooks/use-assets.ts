@@ -34,6 +34,8 @@ export interface Asset {
   project_id: string;
   kind: "image" | "video" | string;
   origin: "upload" | "generated" | "derived" | string;
+  /** User-assigned display name (e.g. ``img_1``, ``vid_3``); editable in the viewer. */
+  name: string | null;
   mime_type: string | null;
   size_bytes: number | null;
   width: number | null;
@@ -54,6 +56,17 @@ export interface Asset {
 export interface AssetListResponse {
   items: Asset[];
   next_cursor: string | null;
+}
+
+/** Best-effort display name for an asset, falling back through metadata, storage path, and id. */
+export function assetDisplayName(asset: Asset): string {
+  if (asset.name?.trim()) return asset.name.trim();
+  const filename = asset.metadata?.filename;
+  if (typeof filename === "string" && filename.trim()) return filename.trim();
+  const path = asset.storage_path ?? "";
+  const last = path.split("/").pop();
+  if (last) return last;
+  return `${asset.kind}-${asset.id.slice(0, 8)}`;
 }
 
 export interface AssetFilters {
