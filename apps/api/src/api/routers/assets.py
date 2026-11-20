@@ -502,6 +502,7 @@ async def request_upload(
         kind=kind,
         origin=AssetOrigin.UPLOAD,
         storage_path=storage_path,
+        name=body.filename,
         storage_bucket=settings.storage_bucket,
         mime_type=body.mime_type,
         size_bytes=body.size_bytes,
