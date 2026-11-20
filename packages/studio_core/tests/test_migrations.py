@@ -122,3 +122,29 @@ def test_replicate_models_expansion_migration_contents() -> None:
     assert "text_to_image" in content
     assert "image_to_image" in content
     assert "on conflict (provider_id, provider_model, task_type) do update" in content.lower()
+
+
+def test_replicate_mainstream_models_migration_contents() -> None:
+    migration_file = REPO_ROOT / "supabase" / "migrations" / "0009_replicate_mainstream_models.sql"
+    content = migration_file.read_text(encoding="utf-8")
+
+    assert "'replicate'" in content
+    assert "openai/gpt-image-2" in content
+    assert "bytedance/seedream-4.5" in content
+    assert "bytedance/seedream-4" in content
+    assert "google/nano-banana-pro" in content
+    assert "black-forest-labs/flux-2-max" in content
+    assert "bytedance/seedance-2.5" in content
+    assert "bytedance/seedance-2.0" in content
+    assert "bytedance/seedance-1-pro" in content
+    assert "google/veo-3.1" in content
+    assert "google/veo-3.1-fast" in content
+    assert "kwaivgi/kling-v2.6" in content
+    assert "wan-video/wan-2.5-t2v" in content
+    assert "wan-video/wan-2.5-i2v" in content
+    assert "minimax/hailuo-2.3" in content
+    assert "text_to_image" in content
+    assert "image_to_image" in content
+    assert "text_to_video" in content
+    assert "image_to_video" in content
+    assert "on conflict (provider_id, provider_model, task_type) do update" in content.lower()

@@ -51,10 +51,30 @@ _IMAGE_INPUT_KEY: dict[str, str] = {
 # List-style image slots: every source image is sent as a list under this key.
 _IMAGE_LIST_INPUT_KEY: dict[str, str] = {
     "black-forest-labs/flux-2-pro": "input_images",
+    "black-forest-labs/flux-2-max": "input_images",
     "google/nano-banana": "image_input",
+    "google/nano-banana-pro": "image_input",
+    "openai/gpt-image-2": "input_images",
+    "bytedance/seedream-4.5": "image_input",
+    "bytedance/seedream-4": "image_input",
 }
 _FIRST_FRAME_INPUT_KEY: dict[str, str] = {
     "minimax/video-01": "first_frame_image",
+    "minimax/hailuo-2.3": "first_frame_image",
+    "bytedance/seedance-2.5": "image",
+    "bytedance/seedance-2.0": "image",
+    "bytedance/seedance-1-pro": "image",
+    "google/veo-3.1": "image",
+    "google/veo-3.1-fast": "image",
+    "kwaivgi/kling-v2.6": "start_image",
+    "wan-video/wan-2.5-i2v": "image",
+}
+_LAST_FRAME_INPUT_KEY: dict[str, str] = {
+    "bytedance/seedance-2.5": "last_frame_image",
+    "bytedance/seedance-2.0": "last_frame_image",
+    "bytedance/seedance-1-pro": "last_frame_image",
+    "google/veo-3.1": "last_frame",
+    "google/veo-3.1-fast": "last_frame",
 }
 # Models with a dedicated reference-image slot that is distinct from the
 # source/init image slot. Reference images must not fall through to the
@@ -122,7 +142,8 @@ class ReplicateProvider:
                 first_frame_key = _FIRST_FRAME_INPUT_KEY.get(req.model, "first_frame")
                 input_payload[first_frame_key] = inp.url
             elif inp.role == "last_frame":
-                input_payload["last_frame"] = inp.url
+                last_frame_key = _LAST_FRAME_INPUT_KEY.get(req.model, "last_frame")
+                input_payload[last_frame_key] = inp.url
             elif inp.role == "mask":
                 input_payload["mask"] = inp.url
 

@@ -329,6 +329,104 @@ class TestReplicateSubmit:
         assert sent["input"]["subject_reference"] == "https://storage/subject.png"
         assert "image" not in sent["input"]
 
+    @pytest.mark.asyncio
+    @respx.mock
+    @pytest.mark.parametrize(
+        ("model", "expected_key"),
+        [
+            ("openai/gpt-image-2", "input_images"),
+            ("bytedance/seedream-4.5", "image_input"),
+            ("bytedance/seedream-4", "image_input"),
+            ("google/nano-banana-pro", "image_input"),
+            ("black-forest-labs/flux-2-max", "input_images"),
+        ],
+    )
+    async def test_submit_maps_new_image_list_key(self, model: str, expected_key: str) -> None:
+        provider = _make_provider()
+        route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model=model,
+            task_type=TaskType.IMAGE_TO_IMAGE,
+            inputs=[
+                ProviderInput(role="init_image", url="https://storage/first.png"),
+                ProviderInput(role="reference_image", url="https://storage/second.png"),
+            ],
+        )
+        await provider.submit(req)
+
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["input"][expected_key] == [
+            "https://storage/first.png",
+            "https://storage/second.png",
+        ]
+        assert "image" not in sent["input"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    @pytest.mark.parametrize(
+        ("model", "expected_key"),
+        [
+            ("bytedance/seedance-2.5", "image"),
+            ("bytedance/seedance-2.0", "image"),
+            ("bytedance/seedance-1-pro", "image"),
+            ("google/veo-3.1", "image"),
+            ("google/veo-3.1-fast", "image"),
+            ("kwaivgi/kling-v2.6", "start_image"),
+            ("wan-video/wan-2.5-i2v", "image"),
+            ("minimax/hailuo-2.3", "first_frame_image"),
+        ],
+    )
+    async def test_submit_maps_new_first_frame_key(self, model: str, expected_key: str) -> None:
+        provider = _make_provider()
+        route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model=model,
+            task_type=TaskType.IMAGE_TO_VIDEO,
+            inputs=[ProviderInput(role="first_frame", url="https://storage/frame.png")],
+        )
+        await provider.submit(req)
+
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["input"][expected_key] == "https://storage/frame.png"
+        assert "first_frame" not in sent["input"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    @pytest.mark.parametrize(
+        ("model", "expected_key"),
+        [
+            ("bytedance/seedance-2.5", "last_frame_image"),
+            ("bytedance/seedance-2.0", "last_frame_image"),
+            ("bytedance/seedance-1-pro", "last_frame_image"),
+            ("google/veo-3.1", "last_frame"),
+            ("google/veo-3.1-fast", "last_frame"),
+        ],
+    )
+    async def test_submit_maps_new_last_frame_key(self, model: str, expected_key: str) -> None:
+        provider = _make_provider()
+        route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model=model,
+            task_type=TaskType.IMAGE_TO_VIDEO,
+            inputs=[
+                ProviderInput(role="first_frame", url="https://storage/first.png"),
+                ProviderInput(role="last_frame", url="https://storage/last.png"),
+            ],
+        )
+        await provider.submit(req)
+
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["input"][expected_key] == "https://storage/last.png"
+
 
 class TestReplicateGetStatus:
     """Tests for ReplicateProvider.get_status()."""

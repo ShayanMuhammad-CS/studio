@@ -83,6 +83,26 @@ image fields, and `minimax/video-01` to `first_frame_image` (and
 `subject_reference` for reference images). Everything else falls back to the
 generic `image` key used by Topaz, CodeFormer, and FLUX.1 [dev].
 
+### Replicate mainstream expansion (migration 0009)
+
+Migration 0009 adds the current mainstream Replicate image and video families,
+including both text and image variants so the composer can switch tasks without
+changing provider:
+
+| Task type | Models |
+|-----------|--------|
+| Text → Image | GPT Image 2 (`replicate-gpt-image-2`, 13 credits), Seedream 4.5 (`replicate-seedream-4-5`, 4 credits), Seedream 4.0 (`replicate-seedream-4`, 3 credits), Nano Banana Pro (`replicate-nano-banana-pro`, 15 credits), FLUX.2 Max (`replicate-flux-2-max`, 7 credits) |
+| Image → Image | GPT Image 2 edit (`replicate-gpt-image-2-edit`, 13 credits), Seedream 4.5 edit (`replicate-seedream-4-5-edit`, 4 credits), Seedream 4.0 edit (`replicate-seedream-4-edit`, 3 credits), Nano Banana Pro edit (`replicate-nano-banana-pro-edit`, 15 credits), FLUX.2 Max edit (`replicate-flux-2-max-edit`, 8 credits) |
+| Text → Video | Seedance 2.5 (`replicate-seedance-2-5`, 116 credits), Seedance 2.0 (`replicate-seedance-2`, 90 credits), Seedance 1.0 Pro (`replicate-seedance-1-pro`, 75 credits), Veo 3.1 (`replicate-veo-3-1`, 320 credits), Veo 3.1 Fast (`replicate-veo-3-1-fast`, 120 credits), Kling 2.6 (`replicate-kling-2-6`, 70 credits), Wan 2.5 (`replicate-wan-2-5`, 50 credits), Hailuo 2.3 (`replicate-hailuo-2-3`, 28 credits) |
+| Image → Video | Seedance 2.5 I2V (`replicate-seedance-2-5-i2v`, 116 credits), Seedance 2.0 I2V (`replicate-seedance-2-i2v`, 90 credits), Seedance 1.0 Pro I2V (`replicate-seedance-1-pro-i2v`, 75 credits), Veo 3.1 I2V (`replicate-veo-3-1-i2v`, 320 credits), Veo 3.1 Fast I2V (`replicate-veo-3-1-fast-i2v`, 120 credits), Kling 2.6 I2V (`replicate-kling-2-6-i2v`, 70 credits), Wan 2.5 I2V (`replicate-wan-2-5-i2v`, 50 credits), Hailuo 2.3 I2V (`replicate-hailuo-2-3-i2v`, 28 credits) |
+
+The new models extend the input-key map: GPT Image 2 and FLUX.2 Max use
+`input_images`, Seedream and Nano Banana Pro use `image_input`, Seedance and
+Veo use `image` for the first frame, Kling 2.6 uses `start_image`, Wan 2.5 I2V
+uses `image`, and Hailuo 2.3 uses `first_frame_image`. Seedance and Veo also
+map the optional last frame to `last_frame_image` and `last_frame`
+respectively.
+
 ### Credit pricing formula
 
 Credits are a unitless internal currency. We set 1 credit ≈ \$0.01 USD in provider cost:

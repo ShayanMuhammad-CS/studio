@@ -69,6 +69,46 @@ MODEL_CAPABILITY_OVERRIDES: dict[str, tuple[InputCapability, ...]] = {
             label="Source images",
         ),
     ),
+    "replicate-gpt-image-2-edit": (
+        InputCapability(
+            role=InputRole.INIT_IMAGE,
+            required=True,
+            max_count=8,
+            label="Source images",
+        ),
+    ),
+    "replicate-seedream-4-5-edit": (
+        InputCapability(
+            role=InputRole.INIT_IMAGE,
+            required=True,
+            max_count=15,
+            label="Source images",
+        ),
+    ),
+    "replicate-seedream-4-edit": (
+        InputCapability(
+            role=InputRole.INIT_IMAGE,
+            required=True,
+            max_count=15,
+            label="Source images",
+        ),
+    ),
+    "replicate-nano-banana-pro-edit": (
+        InputCapability(
+            role=InputRole.INIT_IMAGE,
+            required=True,
+            max_count=14,
+            label="Source images",
+        ),
+    ),
+    "replicate-flux-2-max-edit": (
+        InputCapability(
+            role=InputRole.INIT_IMAGE,
+            required=True,
+            max_count=8,
+            label="Source images",
+        ),
+    ),
     # Kling image-to-video models accept a tail/last-frame image.
     "fal-kling-i2v": (
         InputCapability(
@@ -85,6 +125,77 @@ MODEL_CAPABILITY_OVERRIDES: dict[str, tuple[InputCapability, ...]] = {
         ),
     ),
     "fal-kling-2-5-turbo-i2v": (
+        InputCapability(
+            role=InputRole.FIRST_FRAME,
+            required=True,
+            max_count=1,
+            label="First frame",
+        ),
+        InputCapability(
+            role=InputRole.LAST_FRAME,
+            required=False,
+            max_count=1,
+            label="Last frame",
+        ),
+    ),
+    # Seedance and Veo image-to-video models accept a first and last frame.
+    "replicate-seedance-2-5-i2v": (
+        InputCapability(
+            role=InputRole.FIRST_FRAME,
+            required=True,
+            max_count=1,
+            label="First frame",
+        ),
+        InputCapability(
+            role=InputRole.LAST_FRAME,
+            required=False,
+            max_count=1,
+            label="Last frame",
+        ),
+    ),
+    "replicate-seedance-2-i2v": (
+        InputCapability(
+            role=InputRole.FIRST_FRAME,
+            required=True,
+            max_count=1,
+            label="First frame",
+        ),
+        InputCapability(
+            role=InputRole.LAST_FRAME,
+            required=False,
+            max_count=1,
+            label="Last frame",
+        ),
+    ),
+    "replicate-seedance-1-pro-i2v": (
+        InputCapability(
+            role=InputRole.FIRST_FRAME,
+            required=True,
+            max_count=1,
+            label="First frame",
+        ),
+        InputCapability(
+            role=InputRole.LAST_FRAME,
+            required=False,
+            max_count=1,
+            label="Last frame",
+        ),
+    ),
+    "replicate-veo-3-1-i2v": (
+        InputCapability(
+            role=InputRole.FIRST_FRAME,
+            required=True,
+            max_count=1,
+            label="First frame",
+        ),
+        InputCapability(
+            role=InputRole.LAST_FRAME,
+            required=False,
+            max_count=1,
+            label="Last frame",
+        ),
+    ),
+    "replicate-veo-3-1-fast-i2v": (
         InputCapability(
             role=InputRole.FIRST_FRAME,
             required=True,
