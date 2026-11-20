@@ -491,19 +491,17 @@ async def request_upload(
     storage_filename = _safe_storage_filename(body.filename, body.mime_type)
     storage_path = f"{workspace_id}/{project_id}/{asset_id}/{storage_filename}"
 
-    # Distinct, unified display name (e.g. img_1, vid_3); the original file
-    # name is still preserved in metadata.filename.
+    # Create draft asset (metadata.status = 'pending'). Uploaded assets keep
+    # their original filename as the default display name and are only given a
+    # generated name (img_1, vid_1, ...) when the user renames them; generated
+    # outputs are named by the worker instead.
     repo = AssetRepository(db)
-    name = await repo.next_asset_name(project_id, kind)
-
-    # Create draft asset (metadata.status = 'pending')
     created_asset = await repo.create(
         workspace_id=workspace_id,
         project_id=project_id,
         kind=kind,
         origin=AssetOrigin.UPLOAD,
         storage_path=storage_path,
-        name=name,
         storage_bucket=settings.storage_bucket,
         mime_type=body.mime_type,
         size_bytes=body.size_bytes,

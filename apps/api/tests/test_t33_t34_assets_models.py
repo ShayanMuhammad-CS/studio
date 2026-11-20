@@ -235,15 +235,17 @@ async def test_request_upload_uses_url_safe_storage_name() -> None:
     ]
     assert len(insert_calls) == 1
     insert_args = insert_calls[0].args
-    # name is the 5th bind parameter ($6) of the INSERT.
-    assert insert_args[5] == "vid_1"
+    # name is the 5th bind parameter ($6) of the INSERT; uploads are not
+    # auto-named, so it is None until the user renames.
+    assert insert_args[5] is None
     metadata = json.loads(insert_args[17])
     assert metadata["filename"] == nasty_name
 
 
 @pytest.mark.asyncio
-async def test_request_upload_assigns_generated_name() -> None:
-    """New uploads get a distinct kind-prefixed name (img_1, vid_1, ...)."""
+async def test_request_upload_keeps_default_name_until_renamed() -> None:
+    """New uploads are not auto-named; they keep their original filename as the
+    default display name until the user renames them."""
     uid = uuid.uuid4()
     ws_id = uuid.uuid4()
     proj_id = uuid.uuid4()
@@ -254,16 +256,11 @@ async def test_request_upload_assigns_generated_name() -> None:
         if "projects" in query and "archived_at IS NULL" in query:
             return {"workspace_id": ws_id}
         if "INSERT INTO public.assets" in query:
-            return _asset_row(workspace_id=ws_id, project_id=proj_id, name="img_1")
+            return _asset_row(workspace_id=ws_id, project_id=proj_id, name=None)
         return None
 
-    async def fetchval_side_effect(query: str, *args: Any) -> Any:
-        if "count(*)" in query:
-            return 0
-        return "editor"
-
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    conn.fetchval = AsyncMock(return_value="editor")
     app = _make_app(conn)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -276,7 +273,7 @@ async def test_request_upload_assigns_generated_name() -> None:
     insert_call = [
         call for call in conn.fetchrow.call_args_list if "INSERT INTO public.assets" in call.args[0]
     ][0]
-    assert insert_call.args[5] == "img_1"
+    assert insert_call.args[5] is None
 
 
 @pytest.mark.asyncio
