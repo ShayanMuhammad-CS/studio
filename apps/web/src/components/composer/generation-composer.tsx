@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   Coins,
+  ExternalLink,
   Image as ImageIcon,
   Loader2,
   Sparkles,
@@ -11,6 +12,7 @@ import {
   Video,
   Wand2,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { ComposerImagePicker } from "./composer-image-picker";
 import {
@@ -493,6 +495,15 @@ export function GenerationComposer({
                 onChange={setSelectedSlug}
                 labelledBy="composer-model-label"
               />
+              <Link
+                href="/guide"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-[#9AA1B2] transition-colors hover:text-[#A995FF]"
+              >
+                Not sure which model? See the model guide
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              </Link>
             </div>
           )}
 
