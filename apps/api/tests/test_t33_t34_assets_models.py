@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
-from asyncpg.exceptions import UniqueViolationError
 import jwt
 import pytest
+from asyncpg.exceptions import UniqueViolationError
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
@@ -229,15 +229,16 @@ async def test_request_upload_uses_url_safe_storage_name() -> None:
     claim = jwt.decode(token, options={"verify_signature": False})
     assert claim["url"] == f"media/{ws_id}/{proj_id}/{asset['id']}/original.mp4"
 
-    # The user-facing filename is preserved in metadata.
+    # Uploads now get a generated per-project name (img_1, vid_1, ...) so the
+    # raw filename never collides on idx_assets_project_kind_name. The original
+    # filename lives in metadata.
     insert_calls = [
         call for call in conn.fetchrow.call_args_list if "INSERT INTO public.assets" in call.args[0]
     ]
     assert len(insert_calls) == 1
     insert_args = insert_calls[0].args
-    # name is the 5th bind parameter ($6) of the INSERT; uploads are not
-    # auto-named, so it is None until the user renames.
-    assert insert_args[5] is None
+    # name is the 5th bind parameter ($6) of the INSERT.
+    assert insert_args[5] == "vid_1"
     metadata = json.loads(insert_args[17])
     assert metadata["filename"] == nasty_name
 
@@ -260,7 +261,13 @@ async def test_request_upload_keeps_default_name_until_renamed() -> None:
         return None
 
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    conn.fetchval = AsyncMock(return_value="editor")
+
+    async def fetchval_side_effect(query: str, *args: Any) -> Any:
+        if "count(*)" in query:
+            return 0
+        return "editor"
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     app = _make_app(conn)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -273,7 +280,8 @@ async def test_request_upload_keeps_default_name_until_renamed() -> None:
     insert_call = [
         call for call in conn.fetchrow.call_args_list if "INSERT INTO public.assets" in call.args[0]
     ][0]
-    assert insert_call.args[5] is None
+    # Uploads now get a generated per-project name (img_1, ...) instead of None.
+    assert insert_call.args[5] == "img_1"
 
 
 @pytest.mark.asyncio
@@ -705,6 +713,10 @@ async def test_list_models_advertises_multi_image_capabilities() -> None:
             "required": True,
             "max_count": 4,
             "label": "Source images",
+            "group": None,
+            "required_group": False,
+            "requires": None,
+            "description": None,
         }
     ]
 
@@ -945,3 +957,97 @@ async def test_complete_upload_rejects_invalid_media(
         if "metadata = metadata || $2::jsonb" in call.args[0] and '"failed"' in call.args[2]
     ]
     assert len(failed_updates) == 1
+
+    # Soft-delete of the failed draft frees its name for re-upload.
+    soft_delete_calls = [
+        call
+        for call in conn.execute.call_args_list
+        if "deleted_at = now()" in call.args[0] and '"failed"' in call.args[2]
+    ]
+    assert len(soft_delete_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_processing_failure_soft_deletes_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A processing failure soft-deletes the draft row so its name is freed."""
+    uid = uuid.uuid4()
+    pending = _pending_asset_row(filename="broken.png")
+    conn = _conn_returning_pending_then_ready(pending, pending)
+
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("storage exploded")
+
+    monkeypatch.setattr("api.routers.assets.StorageClient", lambda: _FakeStorage())
+    monkeypatch.setattr(
+        "api.routers.assets._extract_upload_metadata",
+        AsyncMock(side_effect=boom),
+    )
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            f"/v1/assets/{pending['id']}/complete",
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+
+    assert resp.status_code == 502
+
+    soft_delete_calls = [
+        call for call in conn.execute.call_args_list if "deleted_at = now()" in call.args[0]
+    ]
+    assert len(soft_delete_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_request_upload_retries_on_name_collision() -> None:
+    """A unique violation on the generated name retries with the next name."""
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    proj_id = uuid.uuid4()
+
+    conn = _mock_conn()
+
+    call_count = {"n": 0}
+
+    async def fetchrow_side_effect(query: str, *args: Any) -> dict[str, Any] | None:
+        if "projects" in query and "archived_at IS NULL" in query:
+            return {"workspace_id": ws_id}
+        if "INSERT INTO public.assets" in query:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                from asyncpg.exceptions import UniqueViolationError
+
+                raise UniqueViolationError("duplicate key")
+            return _asset_row(workspace_id=ws_id, project_id=proj_id, name="img_2")
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+
+    fetchval_calls = {"n": 0}
+
+    async def fetchval_side_effect(query: str, *args: Any) -> Any:
+        if "count(*)" in query:
+            fetchval_calls["n"] += 1
+            return fetchval_calls["n"] - 1  # 0 then 1
+        return "editor"
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            f"/v1/projects/{proj_id}/assets/uploads",
+            json={"mime_type": "image/png", "size_bytes": 1024, "filename": "photo.png"},
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+    assert resp.status_code == 201
+
+    insert_calls = [
+        call for call in conn.fetchrow.call_args_list if "INSERT INTO public.assets" in call.args[0]
+    ]
+    assert len(insert_calls) == 2
+    # First attempt used img_1 and collided; second used img_2 and succeeded.
+    assert insert_calls[0].args[5] == "img_1"
+    assert insert_calls[1].args[5] == "img_2"

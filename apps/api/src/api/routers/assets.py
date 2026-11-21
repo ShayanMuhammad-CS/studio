@@ -23,8 +23,8 @@ from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import asyncpg
-from asyncpg.exceptions import UniqueViolationError
 import jwt
+from asyncpg.exceptions import UniqueViolationError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -325,6 +325,29 @@ async def _set_upload_status(
     )
 
 
+async def _fail_upload(
+    db: asyncpg.Connection[asyncpg.Record],
+    asset_id: UUID,
+    error: str,
+) -> None:
+    """Record a failed upload and soft-delete the draft row.
+
+    Failed drafts are hidden from the library, but leaving them alive still
+    occupied the per-project display-name index and made the file impossible to
+    upload again. Soft deletion frees the name while preserving an audit trail.
+    """
+    await db.execute(
+        """
+        UPDATE public.assets
+        SET metadata = metadata || $2::jsonb,
+            deleted_at = now()
+        WHERE id = $1 AND deleted_at IS NULL
+        """,
+        asset_id,
+        json.dumps({"status": "failed", "error": error}),
+    )
+
+
 def _asset_ref(
     asset_id: UUID,
     kind: str,
@@ -491,24 +514,40 @@ async def request_upload(
     storage_filename = _safe_storage_filename(body.filename, body.mime_type)
     storage_path = f"{workspace_id}/{project_id}/{asset_id}/{storage_filename}"
 
-    # Create draft asset (metadata.status = 'pending'). Uploaded assets keep
-    # their original filename as the default display name and are only given a
-    # generated name (img_1, vid_1, ...) when the user renames them; generated
-    # outputs are named by the worker instead.
+    # Create draft asset (metadata.status = 'pending'). Uploads get a generated
+    # per-project display name (img_1, vid_1, ...) just like generated outputs;
+    # the original filename stays in metadata for display. Using the raw
+    # filename here collided on idx_assets_project_kind_name and permanently
+    # blocked re-uploading the same file.
     repo = AssetRepository(db)
-    created_asset = await repo.create(
-        workspace_id=workspace_id,
-        project_id=project_id,
-        kind=kind,
-        origin=AssetOrigin.UPLOAD,
-        storage_path=storage_path,
-        name=body.filename,
-        storage_bucket=settings.storage_bucket,
-        mime_type=body.mime_type,
-        size_bytes=body.size_bytes,
-        metadata={"status": "pending", "filename": body.filename},
-        created_by=user.id,
-    )
+    created_asset: Asset | None = None
+    for attempt in range(5):
+        name = await repo.next_asset_name(project_id, kind)
+        try:
+            created_asset = await repo.create(
+                workspace_id=workspace_id,
+                project_id=project_id,
+                kind=kind,
+                origin=AssetOrigin.UPLOAD,
+                storage_path=storage_path,
+                name=name,
+                storage_bucket=settings.storage_bucket,
+                mime_type=body.mime_type,
+                size_bytes=body.size_bytes,
+                metadata={"status": "pending", "filename": body.filename},
+                created_by=user.id,
+            )
+            break
+        except UniqueViolationError:
+            # Another upload claimed the same sequence number. Re-read the
+            # count and try the next name; surface a 409 only after retries.
+            if attempt == 4:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Could not allocate a unique asset name; please retry",
+                ) from None
+
+    assert created_asset is not None
 
     actual_id = created_asset.id
     if actual_id != asset_id:
@@ -553,15 +592,18 @@ async def complete_upload(
         values, thumbnail_path = await _extract_upload_metadata(asset, storage)
     except MediaProbeError as exc:
         logger.warning("Rejecting upload %s: %s", asset_id, exc)
-        await storage.delete_file(asset.storage_path)
-        await _set_upload_status(db, asset_id, "failed", str(exc))
+        try:
+            await storage.delete_file(asset.storage_path)
+        except Exception:  # noqa: BLE001 - cleanup must not mask the 422
+            logger.warning("Failed to delete rejected upload %s", asset_id, exc_info=True)
+        await _fail_upload(db, asset_id, str(exc))
         raise HTTPException(
             status_code=422,
             detail=f"Uploaded file is not valid media: {exc}",
         ) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to process upload %s", asset_id)
-        await _set_upload_status(db, asset_id, "failed", "Processing failed")
+        await _fail_upload(db, asset_id, "Processing failed")
         raise HTTPException(
             status_code=502,
             detail="Failed to process uploaded media",
@@ -747,11 +789,11 @@ async def rename_asset(
 
     try:
         await repo.update_name(asset_id, new_name)
-    except UniqueViolationError:
+    except UniqueViolationError as exc:
         raise HTTPException(
             status_code=409,
             detail=f"An asset named '{new_name}' already exists in this project",
-        )
+        ) from exc
 
     updated = await repo.get_by_id(asset_id)
     assert updated is not None

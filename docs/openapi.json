@@ -756,6 +756,28 @@
       "InputCapabilityResponse": {
         "description": "A media slot the model accepts, with its limits.",
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
@@ -771,6 +793,22 @@
           "required": {
             "title": "Required",
             "type": "boolean"
+          },
+          "required_group": {
+            "default": false,
+            "title": "Required Group",
+            "type": "boolean"
+          },
+          "requires": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires"
           },
           "role": {
             "title": "Role",

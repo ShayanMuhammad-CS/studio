@@ -208,6 +208,44 @@ class GenerationService:
                     f"{capability.max_count} file(s)"
                 )
 
+        # Dependencies: a last frame is meaningless without a first frame.
+        for input_role, count in role_counts.items():
+            if count == 0:
+                continue
+            capability = capability_by_role[input_role]
+            if capability.requires and role_counts[capability.requires] == 0:
+                raise MissingInputError(
+                    f"Input '{input_role.value}' requires a '{capability.requires.value}' input"
+                )
+
+        # Mutually exclusive input modes: e.g. frames and reference images.
+        populated_groups: set[str] = set()
+        for input_role, count in role_counts.items():
+            if count == 0:
+                continue
+            group = capability_by_role[input_role].group
+            if group is not None:
+                populated_groups.add(group)
+        if len(populated_groups) > 1:
+            raise InvalidParamsError(
+                "Inputs from these groups cannot be combined: "
+                + ", ".join(sorted(populated_groups))
+            )
+
+        # A model may require "one of these groups" (frames *or* references).
+        required_group_capabilities = [
+            capability for capability in capabilities if capability.required_group
+        ]
+        if required_group_capabilities and not any(
+            role_counts[capability.role] > 0 for capability in required_group_capabilities
+        ):
+            alternatives = ", ".join(
+                sorted({capability.role.value for capability in required_group_capabilities})
+            )
+            raise MissingInputError(
+                f"Task '{request.task_type.value}' requires at least one of: {alternatives}"
+            )
+
         for capability in capabilities:
             if capability.required and role_counts[capability.role] == 0:
                 raise MissingInputError(

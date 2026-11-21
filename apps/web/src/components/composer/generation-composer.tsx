@@ -37,7 +37,13 @@ import {
   type SubmitGenerationPayload,
 } from "@/hooks/use-generations";
 import type { Asset } from "@/hooks/use-assets";
-import { capabilitiesOfKind, getInputCapabilities } from "@/lib/model-inputs";
+import {
+  capabilitiesOfKind,
+  clearConflictingGroups,
+  missingInputLabel,
+  missingRequiredCapabilities,
+  normalizeInputsForCapabilities,
+} from "@/lib/model-inputs";
 import {
   defaultParamValues,
   normalizeParamValues,
@@ -99,6 +105,9 @@ export function GenerationComposer({
   const selectedModel: StudioModel | null =
     models.find((model) => model.slug === selectedSlug) ?? models[0] ?? null;
   const imageCapabilities = capabilitiesOfKind(selectedModel, "image");
+  const missingInputText = withImage
+    ? missingInputLabel(imageCapabilities, inputsByRole)
+    : undefined;
 
   const mutation = useSubmitGeneration(projectId);
 
@@ -138,25 +147,26 @@ export function GenerationComposer({
     });
   }, [initialAsset, selectedModel]);
 
-  // Drop selections that the newly selected model cannot accept.
+  // Drop selections that the newly selected model cannot accept and resolve
+  // mutually exclusive groups (frames vs. references).
   useEffect(() => {
     if (!selectedModel) return;
     const capabilities = capabilitiesOfKind(selectedModel, "image");
-
-    setInputsByRole((previous) => {
-      const next: Record<string, Asset[]> = {};
-      let changed = false;
-      for (const capability of capabilities) {
-        const current = previous[capability.role] ?? [];
-        const trimmed = current.slice(0, capability.max_count);
-        if (trimmed.length > 0) next[capability.role] = trimmed;
-        if (trimmed.length !== current.length) changed = true;
-      }
-      const removedRole = Object.keys(previous).some((role) => !(role in next));
-      if (removedRole) changed = true;
-      return changed ? next : previous;
-    });
+    setInputsByRole((previous) =>
+      normalizeInputsForCapabilities(previous, capabilities)
+    );
   }, [selectedModel]);
+
+  function setCapabilityInputs(capability: ModelInputCapability, assets: Asset[]) {
+    setInputsByRole((previous) => {
+      const cleared = clearConflictingGroups(
+        previous,
+        imageCapabilities,
+        capability.role
+      );
+      return { ...cleared, [capability.role]: assets };
+    });
+  }
 
   useEffect(() => {
     if (!withImage) setImageError(undefined);
@@ -237,17 +247,11 @@ export function GenerationComposer({
 
     const errors = validateParamValues(selectedModel.input_schema, params);
     const hasImageSlots = imageCapabilities.length > 0;
-    const missingCapability = withImage
-      ? imageCapabilities.find(
-          (capability) =>
-            capability.required && (inputsByRole[capability.role]?.length ?? 0) === 0
-        )
-      : undefined;
     const noImageSupport = withImage && !hasImageSlots;
     const inputError = noImageSupport
       ? "This model does not accept image inputs."
-      : missingCapability
-        ? `Choose a ${missingCapability.label.toLowerCase()} for this flow.`
+      : missingInputText
+        ? `Choose a ${missingInputText} for this flow.`
         : undefined;
 
     setFieldErrors(errors);
@@ -377,12 +381,7 @@ export function GenerationComposer({
                 max={capability.max_count}
                 values={inputsByRole[capability.role] ?? []}
                 error={index === 0 ? imageError : undefined}
-                onChange={(assets) =>
-                  setInputsByRole((previous) => ({
-                    ...previous,
-                    [capability.role]: assets,
-                  }))
-                }
+                onChange={(assets) => setCapabilityInputs(capability, assets)}
               />
             ))}
         </section>

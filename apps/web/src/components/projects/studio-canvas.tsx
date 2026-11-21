@@ -57,7 +57,14 @@ import {
   type ParamValue,
   type ParamValues,
 } from "@/lib/generation-params";
-import { capabilitiesOfKind } from "@/lib/model-inputs";
+import {
+  capabilitiesOfKind,
+  clearConflictingGroups,
+  missingInputLabel,
+  missingRequiredCapabilities,
+  normalizeInputsForCapabilities,
+  preferredReferenceRole,
+} from "@/lib/model-inputs";
 import {
   familyPickerModel,
   groupModelFamilies,
@@ -411,10 +418,8 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
     () => capabilitiesOfKind(selectedModel, "image"),
     [selectedModel]
   );
-  const missingRequiredInput = imageCapabilities.find(
-    (capability) =>
-      capability.required && (inputsByRole[capability.role]?.length ?? 0) === 0
-  );
+  const missingInputs = missingRequiredCapabilities(imageCapabilities, inputsByRole);
+  const missingInputText = missingInputLabel(imageCapabilities, inputsByRole);
   const taskType: TaskType = selectedModel
     ? (selectedModel.task_type as TaskType)
     : taskTypeFor(mode, hasInputs);
@@ -496,29 +501,22 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
       return;
     }
 
-    setInputsByRole((previous) => {
-      const next: Record<string, Asset[]> = {};
-      let changed = false;
-      for (const capability of referenceCapabilities) {
-        const current = previous[capability.role] ?? [];
-        const trimmed = current.slice(0, capability.max_count);
-        if (trimmed.length > 0) next[capability.role] = trimmed;
-        if (trimmed.length !== current.length) changed = true;
-      }
-      if (Object.keys(previous).some((role) => !(role in next))) changed = true;
-      return changed ? next : previous;
-    });
+    setInputsByRole((previous) =>
+      normalizeInputsForCapabilities(previous, referenceCapabilities)
+    );
   }, [selectedFamily, referenceCapabilities, hasInputs]);
 
   useEffect(() => {
-    if (!activeRole && referenceCapabilities.length > 0) {
-      setActiveRole(referenceCapabilities[0].role);
-    } else if (
-      activeRole &&
-      referenceCapabilities.length > 0 &&
+    const preferred = preferredReferenceRole(referenceCapabilities);
+    if (!preferred) {
+      if (activeRole) setActiveRole(null);
+      return;
+    }
+    if (
+      !activeRole ||
       !referenceCapabilities.some((capability) => capability.role === activeRole)
     ) {
-      setActiveRole(referenceCapabilities[0].role);
+      setActiveRole(preferred);
     }
   }, [activeRole, referenceCapabilities]);
 
@@ -563,8 +561,14 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
       return;
     }
 
+    const preferredRole = preferredReferenceRole(capabilities);
     const target =
       (role && capabilities.find((capability) => capability.role === role)) ||
+      capabilities.find(
+        (capability) =>
+          capability.role === preferredRole &&
+          (inputsByRole[capability.role]?.length ?? 0) < capability.max_count
+      ) ||
       capabilities.find(
         (capability) =>
           (inputsByRole[capability.role]?.length ?? 0) < capability.max_count
@@ -578,9 +582,13 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
         toast.error(`${target.label} accepts up to ${target.max_count} reference${target.max_count === 1 ? "" : "s"}.`);
         return previous;
       }
+      // Frames and references are mutually exclusive; choosing one mode drops
+      // the other so the request never mixes them.
+      const cleared = clearConflictingGroups(previous, capabilities, target.role);
+      const nextCurrent = cleared[target.role] ?? [];
       return {
-        ...previous,
-        [target.role]: [...current, asset].slice(0, target.max_count),
+        ...cleared,
+        [target.role]: [...nextCurrent, asset].slice(0, target.max_count),
       };
     });
   }
@@ -601,7 +609,9 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
         toast.error(`${capability.label} accepts up to ${capability.max_count} reference${capability.max_count === 1 ? "" : "s"}.`);
         return previous;
       }
-      return { ...previous, [activeRole]: [...current, asset] };
+      const cleared = clearConflictingGroups(previous, referenceCapabilities, activeRole);
+      const nextCurrent = cleared[activeRole] ?? [];
+      return { ...cleared, [activeRole]: [...nextCurrent, asset] };
     });
   }
 
@@ -701,8 +711,8 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
     const noImageSupport = hasInputs && imageCapabilities.length === 0;
     const inputError = noImageSupport
       ? `${selectedFamily?.name ?? selectedModel.display_name} doesn't accept references.`
-      : missingRequiredInput
-        ? `Choose a ${missingRequiredInput.label.toLowerCase()} for this flow.`
+      : missingInputText
+        ? `Choose a ${missingInputText} for this flow.`
         : undefined;
 
     setFieldErrors(errors);
@@ -833,7 +843,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
   const credits = selectedModel?.cost_credits ?? "—";
   const referenceCount = attachedAssets.length;
   const canGenerate =
-    Boolean(selectedModel) && !mutation.isPending && !missingRequiredInput;
+    Boolean(selectedModel) && !mutation.isPending && missingInputs.length === 0;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -899,7 +909,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
       {/* Prompt dock */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-[#0B0C10] via-[#0B0C10]/95 to-transparent px-3 pb-3 pt-10 sm:px-6 sm:pb-5">
         <div className="pointer-events-auto mx-auto w-full max-w-5xl">
-          {missingRequiredInput && selectedModel && (
+          {missingInputs.length > 0 && selectedModel && (
             <div
               role="alert"
               className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-200"
@@ -910,7 +920,7 @@ export function StudioCanvas({ projectId }: StudioCanvasProps) {
                   <span className="font-semibold">
                     {selectedFamily?.name ?? selectedModel.display_name}
                   </span>{" "}
-                  requires a {missingRequiredInput.label.toLowerCase()} before you can generate.
+                  requires a {missingInputText} before you can generate.
                 </span>
               </span>
               <button

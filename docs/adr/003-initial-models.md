@@ -103,6 +103,13 @@ uses `image`, and Hailuo 2.3 uses `first_frame_image`. Seedance and Veo also
 map the optional last frame to `last_frame_image` and `last_frame`
 respectively.
 
+Seedance 2.5/2.0 and Veo 3.1/3.1 Fast additionally accept a list of reference
+images under the `reference_images` key. This slot is mutually exclusive with
+the first/last frame pair: a generation request may use either frames or
+references, never both. At least one of first frame or reference images is
+required. Seedance 2.5 accepts up to 30 references, Seedance 2.0 up to 9, and
+Veo 3.1 / 3.1 Fast up to 3.
+
 ### Credit pricing formula
 
 Credits are a unitless internal currency. We set 1 credit ≈ \$0.01 USD in provider cost:

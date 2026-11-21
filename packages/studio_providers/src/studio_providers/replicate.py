@@ -82,6 +82,15 @@ _LAST_FRAME_INPUT_KEY: dict[str, str] = {
 _REFERENCE_IMAGE_INPUT_KEY: dict[str, str] = {
     "minimax/video-01": "subject_reference",
 }
+# Models that accept an ordered list of reference images (characters, props,
+# environments) instead of a single subject reference. Seedance and Veo reject
+# requests that combine this slot with first/last frames.
+_REFERENCE_IMAGE_LIST_INPUT_KEY: dict[str, str] = {
+    "bytedance/seedance-2.5": "reference_images",
+    "bytedance/seedance-2.0": "reference_images",
+    "google/veo-3.1": "reference_images",
+    "google/veo-3.1-fast": "reference_images",
+}
 
 
 def _guess_kind_from_url(url: str) -> AssetKind:
@@ -129,12 +138,16 @@ class ReplicateProvider:
         # Map input assets by role. A few Replicate models expect image
         # inputs under a different key, so keep those quirks in one place.
         image_urls: list[str] = []
+        reference_urls: list[str] = []
         for inp in req.inputs:
             if inp.role == "init_image":
                 image_urls.append(inp.url)
             elif inp.role == "reference_image":
+                reference_list_key = _REFERENCE_IMAGE_LIST_INPUT_KEY.get(req.model)
                 reference_key = _REFERENCE_IMAGE_INPUT_KEY.get(req.model)
-                if reference_key:
+                if reference_list_key:
+                    reference_urls.append(inp.url)
+                elif reference_key:
                     input_payload[reference_key] = inp.url
                 else:
                     image_urls.append(inp.url)
@@ -146,6 +159,9 @@ class ReplicateProvider:
                 input_payload[last_frame_key] = inp.url
             elif inp.role == "mask":
                 input_payload["mask"] = inp.url
+
+        if reference_urls:
+            input_payload[_REFERENCE_IMAGE_LIST_INPUT_KEY[req.model]] = reference_urls
 
         if image_urls:
             list_key = _IMAGE_LIST_INPUT_KEY.get(req.model)

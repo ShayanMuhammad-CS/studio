@@ -190,7 +190,6 @@ export async function uploadAssetWithProgress({
 
   // 2. Request signed upload URL
   let assetId: string | undefined;
-  let uploadConfirmed = false;
   try {
     const uploadInitRes = await client.POST("/v1/projects/{project_id}/assets/uploads", {
       params: { path: { project_id: projectId } },
@@ -235,7 +234,6 @@ export async function uploadAssetWithProgress({
       xhr.onabort = () => reject(new Error("Upload aborted"));
       xhr.send(file);
     });
-    uploadConfirmed = true;
 
     // 4. Confirm completion with backend (probes metadata, generates a
     //    thumbnail/poster frame, and marks the asset ready).
@@ -250,9 +248,10 @@ export async function uploadAssetWithProgress({
 
     return completeRes.data as unknown as Asset;
   } catch (err) {
-    if (assetId && !uploadConfirmed) {
-      // The draft row was created but the object never reached storage; remove
-      // it so it cannot linger as an invisible pending asset.
+    if (assetId) {
+      // Any failure after the draft row exists leaves an invisible asset behind.
+      // Remove it (the server also soft-deletes failed processing) so the name
+      // is freed and a retry starts from a clean slate.
       try {
         await client.DELETE("/v1/assets/{asset_id}", {
           params: { path: { asset_id: assetId } },

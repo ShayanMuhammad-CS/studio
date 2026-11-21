@@ -361,3 +361,148 @@ async def test_idempotency_key_replay_same_and_different(
     )
     with pytest.raises(IdempotencyConflictError):
         await service.create_job(uuid4(), test_project.id, req_diff, "idem-1")
+
+
+def _seedance_2_5_model() -> Model:
+    return Model(
+        id=uuid4(),
+        provider_id="replicate",
+        provider_model="bytedance/seedance-2.5",
+        slug="replicate-seedance-2-5-i2v",
+        display_name="Seedance 2.5 I2V",
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        input_schema={"type": "object"},
+        default_params={},
+        cost_credits=Decimal("116.00"),
+        enabled=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_accepts_first_and_last_frame(
+    mock_conn: AsyncMock, test_project: Project
+) -> None:
+    model = _seedance_2_5_model()
+    assets = [_image_asset(test_project), _image_asset(test_project)]
+    service = GenerationService(mock_conn)
+    job = _configure_service(service, test_project, model, assets)
+
+    req = GenerationSubmitRequest(
+        model=model.slug,
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        inputs=[
+            InputItem(asset_id=assets[0].id, role=InputRole.FIRST_FRAME),
+            InputItem(asset_id=assets[1].id, role=InputRole.LAST_FRAME),
+        ],
+    )
+    result = await service.create_job(uuid4(), test_project.id, req, "idem-frames")
+    assert result is job
+    records = service.job_repo.add_inputs.await_args.args[1]  # type: ignore[attr-defined]
+    assert records == [
+        (assets[0].id, "first_frame", 0),
+        (assets[1].id, "last_frame", 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_accepts_reference_images_only(
+    mock_conn: AsyncMock, test_project: Project
+) -> None:
+    model = _seedance_2_5_model()
+    assets = [_image_asset(test_project), _image_asset(test_project)]
+    service = GenerationService(mock_conn)
+    job = _configure_service(service, test_project, model, assets)
+
+    req = GenerationSubmitRequest(
+        model=model.slug,
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        inputs=[
+            InputItem(asset_id=assets[0].id, role=InputRole.REFERENCE_IMAGE),
+            InputItem(asset_id=assets[1].id, role=InputRole.REFERENCE_IMAGE),
+        ],
+    )
+    result = await service.create_job(uuid4(), test_project.id, req, "idem-refs")
+    assert result is job
+    records = service.job_repo.add_inputs.await_args.args[1]  # type: ignore[attr-defined]
+    assert records == [
+        (assets[0].id, "reference_image", 0),
+        (assets[1].id, "reference_image", 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_rejects_mixing_frames_and_references(
+    mock_conn: AsyncMock, test_project: Project
+) -> None:
+    model = _seedance_2_5_model()
+    assets = [_image_asset(test_project), _image_asset(test_project)]
+    service = GenerationService(mock_conn)
+    _configure_service(service, test_project, model, assets)
+
+    req = GenerationSubmitRequest(
+        model=model.slug,
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        inputs=[
+            InputItem(asset_id=assets[0].id, role=InputRole.FIRST_FRAME),
+            InputItem(asset_id=assets[1].id, role=InputRole.REFERENCE_IMAGE),
+        ],
+    )
+    with pytest.raises(InvalidParamsError, match="cannot be combined"):
+        await service.create_job(uuid4(), test_project.id, req, "idem-mix")
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_requires_at_least_one_input_mode(
+    mock_conn: AsyncMock, test_project: Project
+) -> None:
+    model = _seedance_2_5_model()
+    assets = [_image_asset(test_project)]
+    service = GenerationService(mock_conn)
+    _configure_service(service, test_project, model, assets)
+
+    req = GenerationSubmitRequest(
+        model=model.slug,
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        prompt="Animate this",
+        inputs=[],
+    )
+    with pytest.raises(MissingInputError, match="first_frame|reference_image"):
+        await service.create_job(uuid4(), test_project.id, req, "idem-none")
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_rejects_last_frame_without_first_frame(
+    mock_conn: AsyncMock, test_project: Project
+) -> None:
+    model = _seedance_2_5_model()
+    assets = [_image_asset(test_project)]
+    service = GenerationService(mock_conn)
+    _configure_service(service, test_project, model, assets)
+
+    req = GenerationSubmitRequest(
+        model=model.slug,
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        inputs=[
+            InputItem(asset_id=assets[0].id, role=InputRole.LAST_FRAME),
+        ],
+    )
+    with pytest.raises(MissingInputError, match="requires a.*first_frame"):
+        await service.create_job(uuid4(), test_project.id, req, "idem-last-only")
+
+
+@pytest.mark.asyncio
+async def test_seedance_2_5_rejects_too_many_references(
+    mock_conn: AsyncMock, test_project: Project
+) -> None:
+    model = _seedance_2_5_model()
+    assets = [_image_asset(test_project) for _ in range(31)]
+    service = GenerationService(mock_conn)
+    _configure_service(service, test_project, model, assets)
+
+    req = GenerationSubmitRequest(
+        model=model.slug,
+        task_type=TaskType.IMAGE_TO_VIDEO,
+        inputs=[InputItem(asset_id=a.id, role=InputRole.REFERENCE_IMAGE) for a in assets],
+    )
+    with pytest.raises(InvalidParamsError, match="at most 30"):
+        await service.create_job(uuid4(), test_project.id, req, "idem-too-many")

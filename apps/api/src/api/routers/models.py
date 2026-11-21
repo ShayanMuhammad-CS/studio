@@ -30,6 +30,10 @@ class InputCapabilityResponse(BaseModel):
     required: bool
     max_count: int
     label: str
+    group: str | None = None
+    required_group: bool = False
+    requires: str | None = None
+    description: str | None = None
 
 
 class ModelResponse(BaseModel):
@@ -102,6 +106,12 @@ async def list_models(
                         required=capability.required,
                         max_count=capability.max_count,
                         label=capability.label,
+                        group=capability.group,
+                        required_group=capability.required_group,
+                        requires=(
+                            capability.requires.value if capability.requires is not None else None
+                        ),
+                        description=capability.description,
                     )
                     for capability in capabilities
                 ],

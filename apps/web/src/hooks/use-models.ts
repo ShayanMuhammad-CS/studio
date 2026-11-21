@@ -15,6 +15,14 @@ export interface ModelInputCapability {
   required: boolean;
   max_count: number;
   label: string;
+  /** Mutually exclusive input mode; capabilities in other groups cannot be mixed. */
+  group?: string | null;
+  /** At least one input from this capability's group (or another required group) is needed. */
+  required_group?: boolean;
+  /** Another role that must be present whenever this role is used. */
+  requires?: string | null;
+  /** Short helper text for the slot. */
+  description?: string | null;
 }
 
 export interface StudioModel {
