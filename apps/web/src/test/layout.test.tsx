@@ -60,6 +60,7 @@ describe("Layout Components", () => {
     expect(screen.getByRole("link", { name: /projects/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /assets/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /generations/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /model guide/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
   });
 

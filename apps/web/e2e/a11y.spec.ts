@@ -53,6 +53,13 @@ test.describe("Accessibility and responsiveness", () => {
     await expectNoA11yViolations(page);
   });
 
+  test("model guide page has no axe violations", async ({ page }) => {
+    await page.goto("/guide");
+    await expect(page.getByRole("heading", { name: /Model Guide/i })).toBeVisible();
+    await expect(page.getByRole("region", { name: /Text to image/i })).toBeVisible();
+    await expectNoA11yViolations(page);
+  });
+
   test("dialog traps focus and restores it on Escape", async ({ page }) => {
     await page.goto("/projects");
     const trigger = page.getByRole("button", { name: "New Project" });

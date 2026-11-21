@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  BookOpen,
   FolderOpen,
   Images,
   PanelLeftClose,
@@ -41,6 +42,7 @@ export function Sidebar({
     { label: "Projects", href: "/projects", icon: FolderOpen },
     { label: "Assets", href: "/assets", icon: Images },
     { label: "Generations", href: "/generations", icon: Sparkles },
+    { label: "Model Guide", href: "/guide", icon: BookOpen },
     { label: "Settings", href: "/settings", icon: Settings },
   ];
 
