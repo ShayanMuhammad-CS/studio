@@ -83,9 +83,9 @@ image fields, and `minimax/video-01` to `first_frame_image` (and
 `subject_reference` for reference images). Everything else falls back to the
 generic `image` key used by Topaz, CodeFormer, and FLUX.1 [dev].
 
-### Replicate mainstream expansion (migration 0009)
+### Replicate mainstream expansion (migration 0010)
 
-Migration 0009 adds the current mainstream Replicate image and video families,
+Migration 0010 adds the current mainstream Replicate image and video families,
 including both text and image variants so the composer can switch tasks without
 changing provider:
 

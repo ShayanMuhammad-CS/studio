@@ -1,4 +1,4 @@
--- Migration 0009: Add mainstream image and video models from Replicate.
+-- Migration 0010: Add mainstream image and video models from Replicate.
 --
 -- Image generation / editing:
 --   * openai/gpt-image-2              GPT Image 2 (text and edit)

@@ -125,7 +125,7 @@ def test_replicate_models_expansion_migration_contents() -> None:
 
 
 def test_replicate_mainstream_models_migration_contents() -> None:
-    migration_file = REPO_ROOT / "supabase" / "migrations" / "0009_replicate_mainstream_models.sql"
+    migration_file = REPO_ROOT / "supabase" / "migrations" / "0010_replicate_mainstream_models.sql"
     content = migration_file.read_text(encoding="utf-8")
 
     assert "'replicate'" in content
