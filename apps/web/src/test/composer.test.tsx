@@ -177,6 +177,52 @@ const MODELS = [
       },
     ],
   },
+  {
+    id: "m6",
+    slug: "vid-references",
+    display_name: "Animate with References",
+    task_type: "image_to_video",
+    provider_id: "fake",
+    input_schema: {
+      type: "object",
+      properties: {
+        duration_s: { type: "integer", enum: [3, 5], default: 5 },
+      },
+      additionalProperties: false,
+    },
+    default_params: { duration_s: 5 },
+    cost_credits: "11.00",
+    required_input_roles: [],
+    input_capabilities: [
+      {
+        role: "first_frame",
+        kind: "image",
+        required: false,
+        max_count: 1,
+        label: "First frame",
+        group: "frames",
+        required_group: true,
+      },
+      {
+        role: "last_frame",
+        kind: "image",
+        required: false,
+        max_count: 1,
+        label: "Last frame",
+        group: "frames",
+        requires: "first_frame",
+      },
+      {
+        role: "reference_image",
+        kind: "image",
+        required: false,
+        max_count: 3,
+        label: "Reference images",
+        group: "references",
+        required_group: true,
+      },
+    ],
+  },
 ];
 
 const server = setupServer(
@@ -429,6 +475,44 @@ describe("GenerationComposer", () => {
         { asset_id: "asset-input-2", role: "last_frame" },
       ],
     });
+  });
+
+  it("submits reference images as reference_image inputs, not first_frame", async () => {
+    renderComposer();
+    await waitForModel("img-fast");
+
+    clickSegment("Output type", /video/i);
+    clickSegment("Starting point", /text \+ image/i);
+    await waitForModel("vid-anim");
+
+    fireEvent.click(screen.getByTestId("model-picker-trigger"));
+    fireEvent.click(screen.getByRole("option", { name: /animate with references/i }));
+    await waitForModel("vid-references");
+
+    // Add both images as references
+    await waitFor(() =>
+      expect(screen.getByRole("group", { name: /reference images/i })).toBeInTheDocument(),
+    );
+    const firstPicker = screen.getByRole("group", { name: /reference images/i });
+    fireEvent.click(within(firstPicker).getByRole("button", { name: "Use input.png" }));
+    fireEvent.click(within(firstPicker).getByRole("button", { name: "Use second.png" }));
+
+    setPrompt("Keep the character consistent across frames");
+    submit();
+
+    await waitFor(() => expect(captured).toHaveLength(1));
+    expect(captured[0].body).toMatchObject({
+      model: "vid-references",
+      task_type: "image_to_video",
+      inputs: [
+        { asset_id: "asset-input", role: "reference_image" },
+        { asset_id: "asset-input-2", role: "reference_image" },
+      ],
+    });
+    // References must not be demoted to the first-frame slot.
+    expect(captured[0].body.inputs).not.toContainEqual(
+      expect.objectContaining({ role: "first_frame" }),
+    );
   });
 
   it("blocks image flows until a source image is selected", async () => {

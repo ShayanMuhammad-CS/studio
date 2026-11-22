@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -23,6 +24,8 @@ from studio_providers.base import (
     TransientProviderError,
     WebhookEvent,
 )
+
+logger = logging.getLogger(__name__)
 
 # Replicate status → internal state mapping
 _STATUS_MAP: dict[str, ProviderJobState] = {
@@ -137,18 +140,27 @@ class ReplicateProvider:
 
         # Map input assets by role. A few Replicate models expect image
         # inputs under a different key, so keep those quirks in one place.
+        reference_list_key = _REFERENCE_IMAGE_LIST_INPUT_KEY.get(req.model)
+        reference_key = _REFERENCE_IMAGE_INPUT_KEY.get(req.model)
+        # Video models expose a dedicated first-frame slot. For those models a
+        # reference image must never fall through to ``image``: doing so would
+        # silently use the reference as the first frame and drop the rest.
+        is_video_model = req.model in _FIRST_FRAME_INPUT_KEY or req.model in _LAST_FRAME_INPUT_KEY
+
         image_urls: list[str] = []
         reference_urls: list[str] = []
         for inp in req.inputs:
             if inp.role == "init_image":
                 image_urls.append(inp.url)
             elif inp.role == "reference_image":
-                reference_list_key = _REFERENCE_IMAGE_LIST_INPUT_KEY.get(req.model)
-                reference_key = _REFERENCE_IMAGE_INPUT_KEY.get(req.model)
                 if reference_list_key:
                     reference_urls.append(inp.url)
                 elif reference_key:
                     input_payload[reference_key] = inp.url
+                elif is_video_model:
+                    raise PermanentProviderError(
+                        f"Replicate model '{req.model}' does not accept reference images"
+                    )
                 else:
                     image_urls.append(inp.url)
             elif inp.role == "first_frame":
@@ -161,7 +173,8 @@ class ReplicateProvider:
                 input_payload["mask"] = inp.url
 
         if reference_urls:
-            input_payload[_REFERENCE_IMAGE_LIST_INPUT_KEY[req.model]] = reference_urls
+            assert reference_list_key is not None
+            input_payload[reference_list_key] = reference_urls
 
         if image_urls:
             list_key = _IMAGE_LIST_INPUT_KEY.get(req.model)
@@ -172,6 +185,15 @@ class ReplicateProvider:
 
         # Merge model-specific params
         input_payload.update(req.params)
+
+        # Input keys are safe to log (URLs are not). This makes it obvious when
+        # a reference image was routed to the wrong provider slot.
+        logger.debug(
+            "Replicate input model=%s roles=%s keys=%s",
+            req.model,
+            [inp.role for inp in req.inputs],
+            sorted(input_payload),
+        )
 
         body: dict[str, Any] = {
             "version": req.model,

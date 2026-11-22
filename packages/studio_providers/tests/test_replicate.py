@@ -427,6 +427,63 @@ class TestReplicateSubmit:
         sent = json.loads(route.calls[0].request.content)
         assert sent["input"][expected_key] == "https://storage/last.png"
 
+    @pytest.mark.asyncio
+    @respx.mock
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "bytedance/seedance-2.5",
+            "bytedance/seedance-2.0",
+            "google/veo-3.1",
+            "google/veo-3.1-fast",
+        ],
+    )
+    async def test_submit_maps_reference_images_as_list(self, model: str) -> None:
+        """Reference images are sent as an ordered list, never as a first frame."""
+        provider = _make_provider()
+        route = respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model=model,
+            task_type=TaskType.IMAGE_TO_VIDEO,
+            inputs=[
+                ProviderInput(role="reference_image", url="https://storage/char.png"),
+                ProviderInput(role="reference_image", url="https://storage/prop.png"),
+            ],
+        )
+        await provider.submit(req)
+
+        sent = json.loads(route.calls[0].request.content)
+        assert sent["input"]["reference_images"] == [
+            "https://storage/char.png",
+            "https://storage/prop.png",
+        ]
+        # A reference-only request must not populate the first-frame slot.
+        assert "image" not in sent["input"]
+        assert "last_frame_image" not in sent["input"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_submit_rejects_reference_image_for_video_model_without_reference_slot(
+        self,
+    ) -> None:
+        """Never silently demote a reference image to the first-frame slot."""
+        provider = _make_provider()
+        respx.post(f"{REPLICATE_BASE}/v1/predictions").mock(
+            return_value=httpx.Response(201, json=PREDICTION_CREATED)
+        )
+
+        req = _text_to_image_req(
+            model="bytedance/seedance-1-pro",
+            task_type=TaskType.IMAGE_TO_VIDEO,
+            inputs=[ProviderInput(role="reference_image", url="https://storage/char.png")],
+        )
+
+        with pytest.raises(PermanentProviderError, match="does not accept reference"):
+            await provider.submit(req)
+
 
 class TestReplicateGetStatus:
     """Tests for ReplicateProvider.get_status()."""
