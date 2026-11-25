@@ -2057,7 +2057,7 @@
     },
     "/v1/projects/{project_id}": {
       "delete": {
-        "description": "Soft-archive a project (sets archived_at).",
+        "description": "Archive a project, or permanently delete it when ``permanent=true``.\n\nArchiving is a soft-delete (sets ``archived_at``). Permanent deletion\nremoves the project row, cascading to its assets and generations.",
         "operationId": "archive_project_v1_projects__project_id__delete",
         "parameters": [
           {
@@ -2068,6 +2068,16 @@
               "format": "uuid",
               "title": "Project Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "permanent",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Permanent",
+              "type": "boolean"
             }
           }
         ],
@@ -2816,7 +2826,7 @@
     },
     "/v1/workspaces/{workspace_id}/projects": {
       "get": {
-        "description": "List projects in the workspace with cursor pagination.",
+        "description": "List projects in the workspace with cursor pagination.\n\nArchived projects are hidden by default; pass ``include_archived=true`` to\ninclude them (the client filters out active projects for its archive view).",
         "operationId": "list_projects_v1_workspaces__workspace_id__projects_get",
         "parameters": [
           {
@@ -2855,6 +2865,16 @@
                 }
               ],
               "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
             }
           }
         ],

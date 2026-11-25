@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Search, ArrowUpDown } from "lucide-react";
+import { Plus, Search, ArrowUpDown, FolderOpen } from "lucide-react";
 import { useCurrentWorkspace } from "@/components/providers/workspace-context";
 import {
   useProjects,
   useCreateProject,
   useUpdateProject,
   useArchiveProject,
+  useDeleteProject,
   type Project,
 } from "@/hooks/use-projects";
 import { ProjectCard } from "@/components/projects/project-card";
@@ -17,11 +18,22 @@ import { ErrorProjectsState } from "@/components/projects/error-projects-state";
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
 import { RenameProjectDialog } from "@/components/projects/rename-project-dialog";
 import { ArchiveProjectDialog } from "@/components/projects/archive-project-dialog";
+import { DeleteProjectDialog } from "@/components/projects/delete-project-dialog";
 import { toast } from "sonner";
+
+type ProjectStatusFilter = "active" | "archived" | "all";
+
+const STATUS_FILTERS: { value: ProjectStatusFilter; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "archived", label: "Archived" },
+  { value: "all", label: "All" },
+];
 
 export default function ProjectsPage() {
   const { currentWorkspace, isLoading: isLoadingWorkspace } = useCurrentWorkspace();
   const workspaceId = currentWorkspace?.id;
+
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("active");
 
   const {
     data,
@@ -29,11 +41,12 @@ export default function ProjectsPage() {
     isError,
     error,
     refetch,
-  } = useProjects(workspaceId);
+  } = useProjects(workspaceId, { includeArchived: statusFilter !== "active" });
 
   const createMutation = useCreateProject(workspaceId);
   const updateMutation = useUpdateProject(workspaceId);
   const archiveMutation = useArchiveProject(workspaceId);
+  const deleteMutation = useDeleteProject(workspaceId);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"updated" | "name">("updated");
@@ -42,10 +55,16 @@ export default function ProjectsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [projectToRename, setProjectToRename] = useState<Project | null>(null);
   const [projectToArchive, setProjectToArchive] = useState<Project | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+
+  const rawProjects = data?.items || [];
 
   const filteredProjects = useMemo(() => {
-    const rawProjects = data?.items || [];
-    let result = rawProjects.filter((p) => !p.archived_at);
+    let result = (data?.items || []).filter((p) => {
+      if (statusFilter === "archived") return Boolean(p.archived_at);
+      if (statusFilter === "active") return !p.archived_at;
+      return true;
+    });
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -67,7 +86,7 @@ export default function ProjectsPage() {
     });
 
     return result;
-  }, [data?.items, searchQuery, sortBy]);
+  }, [data?.items, searchQuery, sortBy, statusFilter]);
 
   const handleCreateSubmit = async (formData: { name: string; description: string }) => {
     if (!workspaceId) {
@@ -93,6 +112,14 @@ export default function ProjectsPage() {
     setProjectToArchive(null);
   };
 
+  const handleDeleteConfirm = async (projectId: string) => {
+    await deleteMutation.mutateAsync(projectId);
+    setProjectToDelete(null);
+  };
+
+  const countLabel =
+    statusFilter === "archived" ? "Archived" : statusFilter === "all" ? "Total" : "Active";
+
   const isLoading = isLoadingWorkspace || (isLoadingProjects && !data);
 
   return (
@@ -106,7 +133,7 @@ export default function ProjectsPage() {
             </h1>
             {!isLoading && (
               <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-[#1B1E26] text-[#A995FF] border border-[#262A35]">
-                {filteredProjects.length} Active
+                {filteredProjects.length} {countLabel}
               </span>
             )}
           </div>
@@ -116,6 +143,29 @@ export default function ProjectsPage() {
         </div>
 
         <div className="flex items-center flex-wrap gap-3">
+          {/* Status Filter */}
+          <div
+            role="group"
+            aria-label="Filter projects by status"
+            className="flex items-center h-10 gap-1 rounded-xl bg-[#14161C] border border-[#262A35] p-1"
+          >
+            {STATUS_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setStatusFilter(option.value)}
+                aria-pressed={statusFilter === option.value}
+                className={`h-full px-2.5 rounded-lg text-xs font-medium transition-colors ${
+                  statusFilter === option.value
+                    ? "bg-[#1B1E26] text-[#E8EAF0]"
+                    : "text-[#9AA1B2] hover:text-[#E8EAF0]"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
           {/* Search Input */}
           <div className="relative">
             <Search className="w-4 h-4 text-[#9AA1B2] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -160,7 +210,23 @@ export default function ProjectsPage() {
           onRetry={() => refetch()}
         />
       ) : filteredProjects.length === 0 ? (
-        <EmptyProjectsState onCreateClick={() => setIsCreateOpen(true)} />
+        rawProjects.length === 0 && statusFilter === "active" ? (
+          <EmptyProjectsState onCreateClick={() => setIsCreateOpen(true)} />
+        ) : (
+          <div className="rounded-2xl bg-[#14161C] border border-[#262A35] py-16 px-6 flex flex-col items-center justify-center text-center shadow-card">
+            <div className="w-16 h-16 rounded-2xl bg-[#1B1E26] border border-[#262A35] flex items-center justify-center mb-4">
+              <FolderOpen className="w-8 h-8 text-[#9AA1B2]" />
+            </div>
+            <h2 className="text-lg font-semibold text-[#E8EAF0]">
+              {statusFilter === "archived" ? "No archived projects" : "No projects found"}
+            </h2>
+            <p className="text-sm text-[#9AA1B2] mt-1">
+              {statusFilter === "archived"
+                ? "Projects you archive will appear here."
+                : "Try adjusting your search or status filter."}
+            </p>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProjects.map((project) => (
@@ -169,6 +235,7 @@ export default function ProjectsPage() {
               project={project}
               onRename={(p) => setProjectToRename(p)}
               onArchive={(p) => setProjectToArchive(p)}
+              onDelete={(p) => setProjectToDelete(p)}
             />
           ))}
         </div>
@@ -196,6 +263,14 @@ export default function ProjectsPage() {
         isLoading={archiveMutation.isPending}
         onClose={() => setProjectToArchive(null)}
         onConfirm={handleArchiveConfirm}
+      />
+
+      <DeleteProjectDialog
+        project={projectToDelete}
+        isOpen={!!projectToDelete}
+        isLoading={deleteMutation.isPending}
+        onClose={() => setProjectToDelete(null)}
+        onConfirm={handleDeleteConfirm}
       />
     </div>
   );

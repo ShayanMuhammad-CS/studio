@@ -2,13 +2,23 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Folder, MoreVertical, Edit2, Archive, Calendar, Sparkles, Video } from "lucide-react";
+import {
+  Folder,
+  MoreVertical,
+  Edit2,
+  Archive,
+  Trash2,
+  Calendar,
+  Sparkles,
+  Video,
+} from "lucide-react";
 import { type Project, type ProjectPreviewAsset } from "@/hooks/use-projects";
 
 interface ProjectCardProps {
   project: Project;
   onRename: (project: Project) => void;
   onArchive: (project: Project) => void;
+  onDelete: (project: Project) => void;
 }
 
 function previewSource(preview: ProjectPreviewAsset): string | null {
@@ -85,7 +95,7 @@ function ProjectPreviewMosaic({ project }: { project: Project }) {
   );
 }
 
-export function ProjectCard({ project, onRename, onArchive }: ProjectCardProps) {
+export function ProjectCard({ project, onRename, onArchive, onDelete }: ProjectCardProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const formattedDate = new Date(project.updated_at || project.created_at).toLocaleDateString(
@@ -141,29 +151,45 @@ export function ProjectCard({ project, onRename, onArchive }: ProjectCardProps) 
                     role="menu"
                     className="absolute right-0 top-full mt-1 w-36 bg-[#14161C] border border-[#262A35] rounded-xl shadow-card z-30 py-1 overflow-hidden"
                   >
+                    {!project.archived_at && (
+                      <>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsMenuOpen(false);
+                            onRename(project);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#E8EAF0] hover:bg-[#1B1E26] transition-colors text-left"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-[#9AA1B2]" />
+                          <span>Rename</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsMenuOpen(false);
+                            onArchive(project);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#E8EAF0] hover:bg-[#1B1E26] transition-colors text-left"
+                        >
+                          <Archive className="w-3.5 h-3.5 text-[#9AA1B2]" />
+                          <span>Archive</span>
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       role="menuitem"
                       onClick={() => {
                         setIsMenuOpen(false);
-                        onRename(project);
+                        onDelete(project);
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#E8EAF0] hover:bg-[#1B1E26] transition-colors text-left"
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors text-left border-t border-[#262A35]/60"
                     >
-                      <Edit2 className="w-3.5 h-3.5 text-[#9AA1B2]" />
-                      <span>Rename</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        onArchive(project);
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors text-left"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                      <span>Archive</span>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
                     </button>
                   </div>
                 </>
@@ -181,8 +207,12 @@ export function ProjectCard({ project, onRename, onArchive }: ProjectCardProps) 
             <Calendar className="w-3 h-3 text-[#9AA1B2]/60" />
             <span>Updated {formattedDate}</span>
           </span>
-          <span className="text-[10px] uppercase font-semibold text-[#A995FF] tracking-wider px-1.5 py-0.5 rounded bg-[#1B1E26]">
-            Active
+          <span
+            className={`text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-[#1B1E26] ${
+              project.archived_at ? "text-[#9AA1B2]" : "text-[#A995FF]"
+            }`}
+          >
+            {project.archived_at ? "Archived" : "Active"}
           </span>
         </div>
       </div>

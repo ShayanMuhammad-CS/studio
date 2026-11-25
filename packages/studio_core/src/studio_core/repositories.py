@@ -35,13 +35,23 @@ class ProjectRepository:
     def __init__(self, conn: asyncpg.Connection) -> None:
         self.conn = conn
 
-    async def get_by_id(self, project_id: UUID) -> Project | None:
-        query = """
-            SELECT id, workspace_id, name, description, cover_asset_id,
-                   created_by, created_at, updated_at, archived_at
-            FROM public.projects
-            WHERE id = $1 AND archived_at IS NULL
-        """
+    async def get_by_id(
+        self, project_id: UUID, *, include_archived: bool = False
+    ) -> Project | None:
+        if include_archived:
+            query = """
+                SELECT id, workspace_id, name, description, cover_asset_id,
+                       created_by, created_at, updated_at, archived_at
+                FROM public.projects
+                WHERE id = $1
+            """
+        else:
+            query = """
+                SELECT id, workspace_id, name, description, cover_asset_id,
+                       created_by, created_at, updated_at, archived_at
+                FROM public.projects
+                WHERE id = $1 AND archived_at IS NULL
+            """
         row = await self.conn.fetchrow(query, project_id)
         return Project.model_validate(dict(row)) if row else None
 
@@ -67,27 +77,32 @@ class ProjectRepository:
         workspace_id: UUID,
         limit: int = 50,
         before: datetime | None = None,
+        *,
+        include_archived: bool = False,
     ) -> list[Project]:
         if before:
             query = """
                 SELECT id, workspace_id, name, description, cover_asset_id,
                        created_by, created_at, updated_at, archived_at
                 FROM public.projects
-                WHERE workspace_id = $1 AND archived_at IS NULL AND created_at < $2
+                WHERE workspace_id = $1
+                  AND ($2::boolean OR archived_at IS NULL)
+                  AND created_at < $3
                 ORDER BY created_at DESC
-                LIMIT $3
+                LIMIT $4
             """
-            rows = await self.conn.fetch(query, workspace_id, before, limit)
+            rows = await self.conn.fetch(query, workspace_id, include_archived, before, limit)
         else:
             query = """
                 SELECT id, workspace_id, name, description, cover_asset_id,
                        created_by, created_at, updated_at, archived_at
                 FROM public.projects
-                WHERE workspace_id = $1 AND archived_at IS NULL
+                WHERE workspace_id = $1
+                  AND ($2::boolean OR archived_at IS NULL)
                 ORDER BY created_at DESC
-                LIMIT $2
+                LIMIT $3
             """
-            rows = await self.conn.fetch(query, workspace_id, limit)
+            rows = await self.conn.fetch(query, workspace_id, include_archived, limit)
         return [Project.model_validate(dict(r)) for r in rows]
 
     async def get_member_role(self, workspace_id: UUID, user_id: UUID) -> WorkspaceRole | None:

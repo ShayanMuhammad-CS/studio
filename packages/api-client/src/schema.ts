@@ -262,7 +262,10 @@ export interface paths {
         post?: never;
         /**
          * Archive Project
-         * @description Soft-archive a project (sets archived_at).
+         * @description Archive a project, or permanently delete it when ``permanent=true``.
+         *
+         *     Archiving is a soft-delete (sets ``archived_at``). Permanent deletion
+         *     removes the project row, cascading to its assets and generations.
          */
         delete: operations["archive_project_v1_projects__project_id__delete"];
         options?: never;
@@ -445,6 +448,9 @@ export interface paths {
         /**
          * List Projects
          * @description List projects in the workspace with cursor pagination.
+         *
+         *     Archived projects are hidden by default; pass ``include_archived=true`` to
+         *     include them (the client filters out active projects for its archive view).
          */
         get: operations["list_projects_v1_workspaces__workspace_id__projects_get"];
         put?: never;
@@ -743,6 +749,10 @@ export interface components {
          * @description A media slot the model accepts, with its limits.
          */
         InputCapabilityResponse: {
+            /** Description */
+            description?: string | null;
+            /** Group */
+            group?: string | null;
             /** Kind */
             kind: string;
             /** Label */
@@ -751,6 +761,13 @@ export interface components {
             max_count: number;
             /** Required */
             required: boolean;
+            /**
+             * Required Group
+             * @default false
+             */
+            required_group: boolean;
+            /** Requires */
+            requires?: string | null;
             /** Role */
             role: string;
         };
@@ -1429,7 +1446,9 @@ export interface operations {
     };
     archive_project_v1_projects__project_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                permanent?: boolean;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -1793,6 +1812,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string | null;
+                include_archived?: boolean;
             };
             header?: never;
             path: {

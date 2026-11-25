@@ -100,6 +100,16 @@ beforeEach(() => {
       updated_at: new Date().toISOString(),
       archived_at: null,
     },
+    {
+      id: "proj-3",
+      workspace_id: "ws-test-123",
+      name: "Retired Campaign",
+      description: "Older work kept for reference",
+      cover_asset_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      archived_at: new Date().toISOString(),
+    },
   ];
 });
 afterEach(() => {
@@ -275,6 +285,44 @@ describe("ProjectsPage component with MSW", () => {
 
     // The newly created project should be rendered
     expect(await screen.findByText("Neon Runway 2026", {}, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it("filters the project view between active and archived projects", async () => {
+    renderProjectsPage();
+
+    expect(await screen.findByText("Cyberpunk Teaser", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText("Retired Campaign")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(await screen.findByText("Retired Campaign", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText("Cyberpunk Teaser")).not.toBeInTheDocument();
+    expect(screen.getByText(/1 archived/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+
+    expect(await screen.findByText("Cyberpunk Teaser", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText("Retired Campaign")).toBeInTheDocument();
+    expect(screen.getByText(/3 total/i)).toBeInTheDocument();
+  });
+
+  it("permanently deletes a project from the action menu", async () => {
+    renderProjectsPage();
+
+    await screen.findByText("Cyberpunk Teaser", {}, { timeout: 4000 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Options for Cyberpunk Teaser" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(/permanently delete/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Cyberpunk Teaser")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Architectural Stills")).toBeInTheDocument();
   });
 
   it("closes dialog on Escape key", async () => {

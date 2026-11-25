@@ -5,7 +5,7 @@ Endpoints:
   GET    /v1/workspaces/{ws}/projects
   GET    /v1/projects/{id}
   PATCH  /v1/projects/{id}
-  DELETE /v1/projects/{id}  (soft-archive)
+  DELETE /v1/projects/{id}  (soft-archive, or permanent with ?permanent=true)
 """
 
 import logging
@@ -211,8 +211,13 @@ async def list_projects(
     db: DBConn,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     cursor: str | None = None,
+    include_archived: bool = False,
 ) -> ProjectListResponse:
-    """List projects in the workspace with cursor pagination."""
+    """List projects in the workspace with cursor pagination.
+
+    Archived projects are hidden by default; pass ``include_archived=true`` to
+    include them (the client filters out active projects for its archive view).
+    """
     await _require_workspace_member(db, workspace_id, user.id)
     before: datetime | None = None
     if cursor:
@@ -223,7 +228,12 @@ async def list_projects(
 
     repo = ProjectRepository(db)
     # Fetch one extra to determine if there's a next page
-    projects = await repo.list_by_workspace(workspace_id, limit=limit + 1, before=before)
+    projects = await repo.list_by_workspace(
+        workspace_id,
+        limit=limit + 1,
+        before=before,
+        include_archived=include_archived,
+    )
     has_more = len(projects) > limit
     items = projects[:limit]
 
@@ -299,13 +309,26 @@ async def update_project(
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def archive_project(project_id: UUID, user: AuthUser, db: DBConn) -> None:
-    """Soft-archive a project (sets archived_at)."""
+async def archive_project(
+    project_id: UUID,
+    user: AuthUser,
+    db: DBConn,
+    permanent: bool = False,
+) -> None:
+    """Archive a project, or permanently delete it when ``permanent=true``.
+
+    Archiving is a soft-delete (sets ``archived_at``). Permanent deletion
+    removes the project row, cascading to its assets and generations.
+    """
     repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
+    project = await repo.get_by_id(project_id, include_archived=permanent)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     await _require_workspace_member(db, project.workspace_id, user.id, WorkspaceRole.EDITOR)
+
+    if permanent:
+        await db.execute("DELETE FROM public.projects WHERE id = $1", project_id)
+        return
 
     await db.execute(
         "UPDATE public.projects SET archived_at = now() WHERE id = $1 AND archived_at IS NULL",

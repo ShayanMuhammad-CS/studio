@@ -22,9 +22,14 @@ export interface Project {
   archived_at: string | null;
 }
 
-export function useProjects(workspaceId?: string | null) {
+export function useProjects(
+  workspaceId?: string | null,
+  options?: { includeArchived?: boolean }
+) {
+  const includeArchived = options?.includeArchived ?? false;
+
   return useQuery({
-    queryKey: ["projects", workspaceId],
+    queryKey: ["projects", workspaceId, includeArchived],
     queryFn: async () => {
       if (!workspaceId) return { items: [] as Project[], next_cursor: null };
 
@@ -32,6 +37,7 @@ export function useProjects(workspaceId?: string | null) {
       const res = await client.GET("/v1/workspaces/{workspace_id}/projects", {
         params: {
           path: { workspace_id: workspaceId },
+          query: { include_archived: includeArchived },
         },
       });
 
@@ -75,14 +81,15 @@ export function useCreateProject(workspaceId?: string | null) {
 
       return res.data as Project;
     },
-    // Optimistic update
+    // Optimistic update (new projects are active, so target the active list)
     onMutate: async (newProjectData) => {
+      const activeListKey = ["projects", workspaceId, false];
       await queryClient.cancelQueries({ queryKey: ["projects", workspaceId] });
 
       const previousProjects = queryClient.getQueryData<{
         items: Project[];
         next_cursor: string | null;
-      }>(["projects", workspaceId]);
+      }>(activeListKey);
 
       const optimisticProject: Project = {
         id: `optimistic-${Date.now()}`,
@@ -96,12 +103,12 @@ export function useCreateProject(workspaceId?: string | null) {
       };
 
       if (previousProjects) {
-        queryClient.setQueryData(["projects", workspaceId], {
+        queryClient.setQueryData(activeListKey, {
           ...previousProjects,
           items: [optimisticProject, ...previousProjects.items],
         });
       } else {
-        queryClient.setQueryData(["projects", workspaceId], {
+        queryClient.setQueryData(activeListKey, {
           items: [optimisticProject],
           next_cursor: null,
         });
@@ -111,7 +118,7 @@ export function useCreateProject(workspaceId?: string | null) {
     },
     onError: (err, newProject, context) => {
       if (context?.previousProjects) {
-        queryClient.setQueryData(["projects", workspaceId], context.previousProjects);
+        queryClient.setQueryData(["projects", workspaceId, false], context.previousProjects);
       }
       toast.error(err.message || "Failed to create project");
     },
@@ -160,6 +167,35 @@ export function useUpdateProject(workspaceId?: string | null) {
     },
     onError: (err) => {
       toast.error(err.message || "Failed to update project");
+    },
+  });
+}
+
+export function useDeleteProject(workspaceId?: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const client = getApiClient();
+      const res = await client.DELETE("/v1/projects/{project_id}", {
+        params: {
+          path: { project_id: projectId },
+          query: { permanent: true },
+        },
+      });
+
+      if (res.error) {
+        throw new Error((res.error as any)?.detail || "Failed to delete project");
+      }
+
+      return projectId;
+    },
+    onSuccess: () => {
+      toast.success("Project deleted permanently");
+      queryClient.invalidateQueries({ queryKey: ["projects", workspaceId] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to delete project");
     },
   });
 }

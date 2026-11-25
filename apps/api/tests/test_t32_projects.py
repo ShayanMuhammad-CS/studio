@@ -327,6 +327,37 @@ async def test_list_projects_includes_media_previews() -> None:
     assert "COALESCE(a.metadata->>'status', 'ready') = 'ready'" in preview_query
 
 
+@pytest.mark.asyncio
+async def test_list_projects_can_include_archived() -> None:
+    """``include_archived=true`` reaches the repository so archived projects can be shown."""
+    uid = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    project = _project_row(workspace_id=ws_id)
+
+    conn = _mock_conn()
+
+    async def fetch_side_effect(query: str, *args: Any) -> list[dict[str, Any]]:
+        if "public.assets" in query:
+            return []
+        return [project]
+
+    conn.fetchval = AsyncMock(return_value="viewer")
+    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(
+            f"/v1/workspaces/{ws_id}/projects?include_archived=true",
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+
+    assert resp.status_code == 200
+    list_call = next(
+        call for call in conn.fetch.call_args_list if "FROM public.projects" in call.args[0]
+    )
+    assert list_call.args[2] is True
+
+
 # ── Archive (soft-delete) ─────────────────────────────────────────────────────
 
 
@@ -354,3 +385,40 @@ async def test_archive_project_returns_204() -> None:
     assert resp.status_code == 204
     # Verify the UPDATE was called
     conn.execute.assert_called()
+
+
+# ── Permanent delete ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delete_project_permanently_returns_204() -> None:
+    """``permanent=true`` hard-deletes the project, including archived ones."""
+    uid = uuid.uuid4()
+    proj = _project_row(created_by=uid)
+    proj["archived_at"] = datetime.now(UTC)
+
+    conn = _mock_conn()
+
+    async def fetchrow_side_effect(query: str, *args: Any) -> dict[str, Any] | None:
+        if "public.projects" in query and "archived_at IS NULL" not in query:
+            return proj
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    conn.fetchval = AsyncMock(return_value="editor")
+    app = _make_app(conn)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.delete(
+            f"/v1/projects/{proj['id']}?permanent=true",
+            headers={"Authorization": f"Bearer {make_jwt(uid)}"},
+        )
+
+    assert resp.status_code == 204
+    delete_calls = [
+        call
+        for call in conn.execute.call_args_list
+        if "DELETE FROM public.projects" in call.args[0]
+    ]
+    assert len(delete_calls) == 1
+    assert delete_calls[0].args[1] == proj["id"]
